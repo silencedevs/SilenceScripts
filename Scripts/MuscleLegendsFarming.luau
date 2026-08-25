@@ -1,5 +1,7 @@
 local players = game:GetService("Players")
 local player = players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local replicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,53 +12,35 @@ local displayName = player.DisplayName
 local virtualUser = game:GetService("VirtualUser")
 local lighting = game:GetService("Lighting")
 
-
-if getgenv().sbe ~= "sbevalid" then
-	player:Kick("Always use the Loader")
-	getgenv().sbe = ""
-	task.wait(0.5)
-	return
-else
-	getgenv().sbe = ""
-end
-
-
-
-
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/ghjkl1312/bhkjhk/refs/heads/main/lib.luau", true))()
-
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/librarys/eleriumv2.luau"))()
 local window = library:AddWindow("Silence | Fast Farming - Good Farming " .. displayName, {
-	title_bar = { Color3.fromRGB(255, 0, 0), Color3.fromRGB(155, 0, 0) },
-	title_bar_transparency = 0.3,
-	background = { Color3.fromRGB(90, 0, 0), Color3.fromRGB(0, 0, 0) },
-	background_transparency = 0.2,
-	main_color = Color3.fromRGB(255, 255, 255),
-	min_size = Vector2.new(600, 450),
-	can_resize = true,
+    main_color = Color3.fromRGB(138, 0, 0),
+    min_size = Vector2.new(500, 450),
+    can_resize = false
 })
 
 
 
 player.Idled:Connect(function()
-	virtualUser:CaptureController()
-	virtualUser:ClickButton2(Vector2.new())
+    virtualUser:CaptureController()
+    virtualUser:ClickButton2(Vector2.new())
 end)
 
 local function deleteAds()
-	for _, portal in pairs(game:GetDescendants()) do
-		if portal.Name == "RobloxForwardPortals" then
-			portal:Destroy()
-		end
-	end
-	if _G.ads then
-		_G.ads:Disconnect()
-	end
+    for _, portal in pairs(game:GetDescendants()) do
+        if portal.Name == "RobloxForwardPortals" then
+            portal:Destroy()
+        end
+    end
+    if _G.ads then
+        _G.ads:Disconnect()
+    end
 
-	_G.ads = game.DescendantAdded:Connect(function(descendant)
-		if descendant.Name == "RobloxForwardPortals" then
-			descendant:Destroy()
-		end
-	end)
+    _G.ads = game.DescendantAdded:Connect(function(descendant)
+        if descendant.Name == "RobloxForwardPortals" then
+            descendant:Destroy()
+        end
+    end)
 end
 deleteAds()
 
@@ -200,15 +184,12 @@ local function calculatePaceOnRebirth()
     end
 end
 
-
-
-
 rebirthsStat:GetPropertyChangedSignal("Value"):Connect(function()
     calculatePaceOnRebirth()
     updateRebirthsLabel()
 end)
 
-local function managePets(petName)
+local function unequipAllPets()
     for _, folder in pairs(player.petsFolder:GetChildren()) do
         if folder:IsA("Folder") then
             for _, pet in pairs(folder:GetChildren()) do
@@ -217,10 +198,96 @@ local function managePets(petName)
         end
     end
     task.wait(0.1)
-    
+end
+
+local function equipFarmingPets()
+    unequipAllPets()
+
+    local omegas = {}
+    local swifts = {}
+    local hounds = {}
+
     for _, pet in pairs(player.petsFolder.Unique:GetChildren()) do
-        if pet.Name == petName then
+        if pet.Name == "Omega Overlord" then table.insert(omegas, pet)
+        elseif pet.Name == "Swift Samurai" then table.insert(swifts, pet)
+        elseif pet.Name == "Powercore Hound" then table.insert(hounds, pet)
+        end
+    end
+
+    local equippedCount = 0
+    local currentPercent = 0
+    local maxSlots = 9
+
+    for i = #omegas, 1, -1 do
+        if equippedCount < maxSlots and currentPercent < 100 then
+            local pet = table.remove(omegas, i)
             replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            currentPercent = currentPercent + 20
+            equippedCount = equippedCount + 1
+        end
+    end
+
+    for i = #swifts, 1, -1 do
+        if equippedCount < maxSlots and currentPercent < 100 then
+            local pet = table.remove(swifts, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            currentPercent = currentPercent + 15
+            equippedCount = equippedCount + 1
+        end
+    end
+
+    if currentPercent >= 100 then
+        for i = #hounds, 1, -1 do
+            if equippedCount < maxSlots then
+                local pet = table.remove(hounds, i)
+                replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+                equippedCount = equippedCount + 1
+            end
+        end
+    end
+    for i = #omegas, 1, -1 do
+        if equippedCount < maxSlots then
+            local pet = table.remove(omegas, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
+        end
+    end
+
+    for i = #swifts, 1, -1 do
+        if equippedCount < maxSlots then
+            local pet = table.remove(swifts, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
+        end
+    end
+end
+
+local function equipRebirthPets()
+    unequipAllPets()
+
+    local hydras = {}
+    local tribals = {}
+
+    for _, pet in pairs(player.petsFolder.Unique:GetChildren()) do
+        if pet.Name == "Titanium Hydra" then table.insert(hydras, pet)
+        elseif pet.Name == "Tribal Overlord" then table.insert(tribals, pet)
+        end
+    end
+
+    local equippedCount = 0
+    local maxSlots = 9
+
+    for _, pet in ipairs(hydras) do
+        if equippedCount < maxSlots then
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
+        end
+    end
+
+    for _, pet in ipairs(tribals) do
+        if equippedCount < maxSlots then
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
         end
     end
 end
@@ -230,7 +297,7 @@ local function doRebirth()
     local strengthTarget = 5000 + (rebirths * 2550)
     
     while isRunning and player.leaderstats.Strength.Value < strengthTarget do
-        local reps = player.MembershipType == Enum.MembershipType.Premium and 12 or 20
+        local reps = player.MembershipType == Enum.MembershipType.Premium and 6 or 12
         for _ = 1, reps do
             muscleEvent:FireServer("rep")
         end
@@ -238,7 +305,7 @@ local function doRebirth()
     end
     
     if isRunning and player.leaderstats.Strength.Value >= strengthTarget then
-        managePets("Tribal Overlord")
+        equipRebirthPets()
         task.wait(0.25)
         
         local before = rebirthsStat.Value
@@ -251,7 +318,7 @@ end
 
 local function fastRebirthLoop()
     while isRunning do
-        managePets("Swift Samurai")
+        equipFarmingPets() 
         doRebirth()
         task.wait(0.5)
     end
@@ -284,12 +351,6 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
-
-
-
-
-
-
 
 local farmTab = window:AddTab("Fast Farm")
 
@@ -474,8 +535,6 @@ local function getAdaptiveSpeed(ping)
     end
 end
 
-
-
 farmTab.AddTextBox(farmTab, "Rep Speed:", function(inputText)
     local speedValue = tonumber(inputText)
     if speedValue then
@@ -547,137 +606,103 @@ local posLocked = false
 local lockedPosition = nil
 
 local function lockPosition()
-	if not posLocked or not lockedPosition then
-		return
-	end
+    if not posLocked or not lockedPosition then
+        return
+    end
 
-	local currentCharacter = player.Character
-	if not currentCharacter then
-		return
-	end
+    local currentCharacter = player.Character
+    if not currentCharacter then
+        return
+    end
 
-	local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-	if not rootPart then
-		return
-	end
+    local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+    if not rootPart then
+        return
+    end
 
-	local existingPosition = rootPart:FindFirstChild("PositionLocker")
+    local existingPosition = rootPart:FindFirstChild("PositionLocker")
 
-	if existingPosition then
-		existingPosition.Position = lockedPosition
-	else
-		local bodyPosition = Instance.new("BodyPosition")
-		bodyPosition.Name = "PositionLocker"
-		bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-		bodyPosition.Position = lockedPosition
-		bodyPosition.P = 100000
-		bodyPosition.Parent = rootPart
-	end
+    if existingPosition then
+        existingPosition.Position = lockedPosition
+    else
+        local bodyPosition = Instance.new("BodyPosition")
+        bodyPosition.Name = "PositionLocker"
+        bodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyPosition.Position = lockedPosition
+        bodyPosition.P = 100000
+        bodyPosition.Parent = rootPart
+    end
 end
 
 local function unlockPosition()
-	local currentCharacter = player.Character
-	if currentCharacter then
-		local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
-		if rootPart then
-			local existingPosition = rootPart:FindFirstChild("PositionLocker")
-			if existingPosition then
-				existingPosition:Destroy()
-			end
-		end
-	end
-	lockedPosition = nil
+    local currentCharacter = player.Character
+    if currentCharacter then
+        local rootPart = currentCharacter:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            local existingPosition = rootPart:FindFirstChild("PositionLocker")
+            if existingPosition then
+                existingPosition:Destroy()
+            end
+        end
+    end
+    lockedPosition = nil
 end
 
 local lockPositionSwitch = settingsTab:AddSwitch("Lock Position", function(bool)
-	posLocked = bool
+    posLocked = bool
 
-	if bool then
-		local currentRootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if currentRootPart then
-			lockedPosition = currentRootPart.Position
-		end
-		lockPosition()
-	else
-		unlockPosition()
-	end
+    if bool then
+        local currentRootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if currentRootPart then
+            lockedPosition = currentRootPart.Position
+        end
+        lockPosition()
+    else
+        unlockPosition()
+    end
 end)
 
 player.CharacterAdded:Connect(function(newCharacter)
-	local rootPart = newCharacter:WaitForChild("HumanoidRootPart", 5)
-	if posLocked and rootPart then
-		lockedPosition = rootPart.Position
-		lockPosition()
-	end
+    local rootPart = newCharacter:WaitForChild("HumanoidRootPart", 5)
+    if posLocked and rootPart then
+        lockedPosition = rootPart.Position
+        lockPosition()
+    end
 end)
 
 task.spawn(function()
-	while true do
-		if posLocked then
-			lockPosition()
-		end
-		task.wait(0.1)
-	end
+    while true do
+        if posLocked then
+            lockPosition()
+        end
+        task.wait(0.1)
+    end
 end)
-
-
-local blockedFrames = {
-	"strengthFrame",
-	"durabilityFrame",
-	"agilityFrame",
-	"evilKarmaFrame",
-	"goodKarmaFrame",
-}
-
-local frameSwitch = settingsTab:AddSwitch("Hide Stat Frames", function(bool)
-	if bool then
-		for _, name in ipairs(blockedFrames) do
-			local frame = replicatedStorage:FindFirstChild(name)
-			if frame and frame:IsA("GuiObject") then
-				frame.Visible = false
-			end
-		end
-
-		if not _G.frameMonitorConnection then
-			_G.frameMonitorConnection = replicatedStorage.ChildAdded:Connect(function(child)
-				for _, name in ipairs(blockedFrames) do
-					if child.Name == name and child:IsA("GuiObject") then
-						child.Visible = false
-					end
-				end
-			end)
-		end
-	else
-		for _, name in ipairs(blockedFrames) do
-			local frame = replicatedStorage:FindFirstChild(name)
-			if frame and frame:IsA("GuiObject") then
-				frame.Visible = true
-			end
-		end
-
-		if _G.frameMonitorConnection then
-			_G.frameMonitorConnection:Disconnect()
-			_G.frameMonitorConnection = nil
-		end
-	end
-end)
-frameSwitch:Set(false)
-
-
 settingsTab:AddButton("Anti Lag", function()
     local player = game.Players.LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
     local lighting = game:GetService("Lighting")
+    local workspace = game:GetService("Workspace")
+    
+    pcall(function()
+        playerGui.gameGui.statsMenu.statsList.strengthFrame:Destroy()
+    end)
+    pcall(function()
+        game:GetService("ReplicatedStorage").shared.assets.ui.strengthFrame:Destroy()
+    end)
+    pcall(function()
+        game:GetService("ReplicatedStorage").shared.assets.ui.durabilityFrame:Destroy()
+    end)
 
     for _, gui in pairs(playerGui:GetChildren()) do
         if gui:IsA("ScreenGui") then
-            gui:Destroy()
+            pcall(function() gui:Destroy() end)
         end
     end
 
-    local function darkenSky()
+    local function clapLighting()
         for _, v in pairs(lighting:GetChildren()) do
-            if v:IsA("Sky") then
+            if v:IsA("Sky") or v:IsA("Atmosphere") or v:IsA("PostEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
                 v:Destroy()
             end
         end
@@ -692,49 +717,58 @@ settingsTab:AddButton("Anti Lag", function()
         darkSky.SkyboxUp = "rbxassetid://0"
         darkSky.Parent = lighting
 
+        lighting.GlobalShadows = false
         lighting.Brightness = 0
         lighting.ClockTime = 0
         lighting.TimeOfDay = "00:00:00"
         lighting.OutdoorAmbient = Color3.new(0, 0, 0)
         lighting.Ambient = Color3.new(0, 0, 0)
         lighting.FogColor = Color3.new(0, 0, 0)
-        lighting.FogEnd = 100
+        lighting.FogEnd = 0
+        lighting.FogStart = 0
+        lighting.ExposureCompensation = -5
 
         task.spawn(function()
             while true do
-                wait(5)
+                task.wait(1)
                 if not lighting:FindFirstChild("DarkSky") then
                     darkSky:Clone().Parent = lighting
                 end
+                lighting.GlobalShadows = false
                 lighting.Brightness = 0
                 lighting.ClockTime = 0
                 lighting.OutdoorAmbient = Color3.new(0, 0, 0)
                 lighting.Ambient = Color3.new(0, 0, 0)
                 lighting.FogColor = Color3.new(0, 0, 0)
-                lighting.FogEnd = 100
+                lighting.FogEnd = 0
+                lighting.FogStart = 0
+                lighting.ExposureCompensation = -5
             end
         end)
     end
 
-    local function removeParticleEffects()
+    local function clapWorkspace()
         for _, obj in pairs(workspace:GetDescendants()) do
-            if obj:IsA("ParticleEmitter") then
+            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
                 obj:Destroy()
+            elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+                obj:Destroy()
+            elseif obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+                obj.Reflectance = 0
             end
         end
+        
+        pcall(function()
+            workspace.Terrain.WaterWaveSize = 0
+            workspace.Terrain.WaterWaveSpeed = 0
+            workspace.Terrain.WaterReflectance = 0
+            workspace.Terrain.WaterTransparency = 0
+        end)
     end
 
-    local function removeLightSources()
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-                obj:Destroy()
-            end
-        end
-    end
-
-    removeParticleEffects()
-    removeLightSources()
-    darkenSky()
+    clapWorkspace()
+    clapLighting()
 end)
     
 local PlayerData = {
@@ -747,18 +781,18 @@ local ProteinEggLabel = settingsTab:AddLabel("Protein Eggs Owned: 0")
 ProteinEggLabel.TextSize = 14
 
 task.spawn(function()
-	while true do
-		local proteinEggCount = 0
-		local tropicalShakeCount = 0
-		if PlayerData.Backpack then
-			for _, item in ipairs(PlayerData.Backpack:GetChildren()) do
-				if item.Name == "Protein Egg" then proteinEggCount = proteinEggCount + 1
-				elseif item.Name == "Tropical Shake" then tropicalShakeCount = tropicalShakeCount + 1 end
-			end
-		end
-		ProteinEggLabel.Text = "Protein Eggs: " .. proteinEggCount
-		task.wait(7.5)
-	end
+    while true do
+        local proteinEggCount = 0
+        local tropicalShakeCount = 0
+        if PlayerData.Backpack then
+            for _, item in ipairs(PlayerData.Backpack:GetChildren()) do
+                if item.Name == "Protein Egg" then proteinEggCount = proteinEggCount + 1
+                elseif item.Name == "Tropical Shake" then tropicalShakeCount = tropicalShakeCount + 1 end
+            end
+        end
+        ProteinEggLabel.Text = "Protein Eggs: " .. proteinEggCount
+        task.wait(7.5)
+    end
 end)
 
 local ProteinEggBoostLabel = settingsTab:AddLabel("Protein Egg Boost: 00:00")
@@ -857,55 +891,116 @@ local spinwheelSwitch = settingsTab:AddSwitch("Spin Fortune Wheel", function(boo
     _G.AutoSpinWheel = bool
     
     if bool then
-        spawn(function()
-            while _G.AutoSpinWheel and wait(1) do
-                game:GetService("ReplicatedStorage").rEvents.openFortuneWheelRemote:InvokeServer("openFortuneWheel", game:GetService("ReplicatedStorage").fortuneWheelChances["Fortune Wheel"])
+        task.spawn(function()
+            local Event = game:GetService("ReplicatedStorage").rEvents.openFortuneWheelRemote
+            local chances = game:GetService("ReplicatedStorage").shared.catalogs.fortuneWheelChances["Fortune Wheel"]
+            
+            while _G.AutoSpinWheel do
+                Event:InvokeServer("openFortuneWheel", chances)
+                task.wait(1)
             end
         end)
     end
 end)
 
-local statPetDropdown = settingsTab:AddDropdown("Perk Pet Equip", function(text)
-	local petsFolder = game.Players.LocalPlayer.petsFolder
-	for _, folder in pairs(petsFolder:GetChildren()) do
-		if folder:IsA("Folder") then
-			for _, pet in pairs(folder:GetChildren()) do
-				game:GetService("ReplicatedStorage").rEvents.equipPetEvent:FireServer("unequipPet", pet)
-			end
-		end
-	end
-	task.wait(0.2)
+settingsTab:AddButton("Equip Best Fast Rep Pets", function()
+    local player = game.Players.LocalPlayer
+    local replicatedStorage = game:GetService("ReplicatedStorage")
+    
+    for _, folder in pairs(player.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in pairs(folder:GetChildren()) do
+                replicatedStorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
+            end
+        end
+    end
+    task.wait(0.2)
 
-	local petName = text
-	local petsToEquip = {}
+    local omegas = {}
+    local swifts = {}
+    local hounds = {}
 
-	for _, pet in pairs(game.Players.LocalPlayer.petsFolder.Unique:GetChildren()) do
-		if pet.Name == petName then
-			table.insert(petsToEquip, pet)
-		end
-	end
+    for _, pet in pairs(player.petsFolder.Unique:GetChildren()) do
+        if pet.Name == "Omega Overlord" then table.insert(omegas, pet)
+        elseif pet.Name == "Swift Samurai" then table.insert(swifts, pet)
+        elseif pet.Name == "Powercore Hound" then table.insert(hounds, pet)
+        end
+    end
 
-	for i = 1, math.min(8, #petsToEquip) do
-		game:GetService("ReplicatedStorage").rEvents.equipPetEvent:FireServer("equipPet", petsToEquip[i])
-		task.wait(0.1)
-	end
+    local equippedCount = 0
+    local currentPercent = 0
+    local maxSlots = 9
+
+    for i = #omegas, 1, -1 do
+        if equippedCount < maxSlots and currentPercent < 100 then
+            local pet = table.remove(omegas, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            currentPercent = currentPercent + 20
+            equippedCount = equippedCount + 1
+            task.wait(0.1)
+        end
+    end
+
+    for i = #swifts, 1, -1 do
+        if equippedCount < maxSlots and currentPercent < 100 then
+            local pet = table.remove(swifts, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            currentPercent = currentPercent + 15
+            equippedCount = equippedCount + 1
+            task.wait(0.1)
+        end
+    end
+
+    if currentPercent >= 100 then
+        for i = #hounds, 1, -1 do
+            if equippedCount < maxSlots then
+                local pet = table.remove(hounds, i)
+                replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+                equippedCount = equippedCount + 1
+                task.wait(0.1)
+            end
+        end
+    end
+
+    for i = #omegas, 1, -1 do
+        if equippedCount < maxSlots then
+            local pet = table.remove(omegas, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
+            task.wait(0.1)
+        end
+    end
+
+    for i = #swifts, 1, -1 do
+        if equippedCount < maxSlots then
+            local pet = table.remove(swifts, i)
+            replicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+            equippedCount = equippedCount + 1
+            task.wait(0.1)
+        end
+    end
 end)
-statPetDropdown:Add("Swift Samurai")
-statPetDropdown:Add("Tribal Overlord")
 
 local char = player.Character or player.CharacterAdded:wait()
 local hrp = char:WaitForChild("HumanoidRootPart")
 
-settingsTab:AddButton("Jungle Lift",function()
-    hrp.CFrame = CFrame.new(-8642.396484375, 6.7980651855, 2086.1030273)
+settingsTab:AddButton("Industrial Lift",function()
+humanoidRootPart.CFrame = CFrame.new(
+-5491.68945, 81.2379913, 4643.85791, 0.0425877757, -0.0656917617, 0.996930718, 8.18951218e-09, 0.997836053, 0.0657514185, -0.999092758, -0.0028001985, 0.0424956195
+)
     task.wait(0.2)
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
     task.wait(0.05)
     VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 end)
 
-settingsTab:AddButton("Jungle Squat",function()
-    hrp.CFrame = CFrame.new(-8371.43359375, 6.79806327, 2858.88525390)
+settingsTab:AddButton("Industrial Squat",function()
+humanoidRootPart.CFrame = CFrame.new(
+    -5217.25049, 89.8445511, 5416.01025, 
+    -0.99984771, 0.00175155443, -0.0173645448, 
+    -1.10350671e-08, 0.994951069, 0.100360937, 
+    0.0174526609, 0.100345649, -0.994799554
+)
     task.wait(0.2)
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
     task.wait(0.05)
@@ -914,8 +1009,8 @@ end)
 
 local infoTab = window:AddTab("Info")
 infoTab:Show()
-infoTab:AddLabel("Made with ♥️ by Henne").TextSize = 17
-infoTab:AddLabel("You need 7-8 Robux Packs for Fast Farming❕").TextSize = 17
+infoTab:AddLabel("Made with ♥️ by Henne and Muki :p").TextSize = 17
+infoTab:AddLabel("any issue? DM @mukimagdich/@riseinsilence on dc").TextSize = 17
 infoTab:AddLabel("Official Discord: discord.gg/9eFf93Kg8D").TextSize = 17
 infoTab:AddButton("Copy Discord Invite", function()
     local link = "https://discord.gg/9eFf93Kg8D"
@@ -936,7 +1031,6 @@ infoTab:AddButton("Copy Discord Invite", function()
 end)
 
 infoTab:AddLabel("")
-local wLabel = infoTab:AddLabel("Silence [V3.3.0]")
+local wLabel = infoTab:AddLabel("Silence V4.0.0")
 wLabel.TextSize = 40
 wLabel.Font = Enum.Font.Arcade
-
