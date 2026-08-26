@@ -678,13 +678,12 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local MaterialService = game:GetService("MaterialService")
+local SoundService = game:GetService("SoundService")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 settingsTab:AddButton("Anti Lag", function()
-	local Workspace = game:GetService("Workspace")
-    local RunService = game:GetService("RunService")
-    local MaterialService = game:GetService("MaterialService")
-    local SoundService = game:GetService("SoundService")
-    local ReplicatedFirst = game:GetService("ReplicatedFirst")
-
 	local player = Players.LocalPlayer
 
 	if not player then
