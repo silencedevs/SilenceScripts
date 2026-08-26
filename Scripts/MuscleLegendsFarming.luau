@@ -679,98 +679,184 @@ task.spawn(function()
     end
 end)
 settingsTab:AddButton("Anti Lag", function()
-    local player = game.Players.LocalPlayer
-    local playerGui = player:WaitForChild("PlayerGui")
-    local lighting = game:GetService("Lighting")
-    local workspace = game:GetService("Workspace")
-    
-    pcall(function()
-        playerGui.gameGui.statsMenu.statsList.strengthFrame:Destroy()
-    end)
-    pcall(function()
-        game:GetService("ReplicatedStorage").shared.assets.ui.strengthFrame:Destroy()
-    end)
-    pcall(function()
-        game:GetService("ReplicatedStorage").shared.assets.ui.durabilityFrame:Destroy()
-    end)
+	local Workspace = game:GetService("Workspace")
+    local RunService = game:GetService("RunService")
+    local MaterialService = game:GetService("MaterialService")
+    local SoundService = game:GetService("SoundService")
+    local ReplicatedFirst = game:GetService("ReplicatedFirst")
 
-    for _, gui in pairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") then
-            pcall(function() gui:Destroy() end)
-        end
-    end
+	local player = Players.LocalPlayer
 
-    local function clapLighting()
-        for _, v in pairs(lighting:GetChildren()) do
-            if v:IsA("Sky") or v:IsA("Atmosphere") or v:IsA("PostEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect") or v:IsA("SunRaysEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then
-                v:Destroy()
-            end
-        end
+	if not player then
+		return
+	end
 
-        local darkSky = Instance.new("Sky")
-        darkSky.Name = "DarkSky"
-        darkSky.SkyboxBk = "rbxassetid://0"
-        darkSky.SkyboxDn = "rbxassetid://0"
-        darkSky.SkyboxFt = "rbxassetid://0"
-        darkSky.SkyboxLf = "rbxassetid://0"
-        darkSky.SkyboxRt = "rbxassetid://0"
-        darkSky.SkyboxUp = "rbxassetid://0"
-        darkSky.Parent = lighting
+	local playerGui =
+		player:FindFirstChildOfClass("PlayerGui")
+		or player:WaitForChild("PlayerGui", 5)
 
-        lighting.GlobalShadows = false
-        lighting.Brightness = 0
-        lighting.ClockTime = 0
-        lighting.TimeOfDay = "00:00:00"
-        lighting.OutdoorAmbient = Color3.new(0, 0, 0)
-        lighting.Ambient = Color3.new(0, 0, 0)
-        lighting.FogColor = Color3.new(0, 0, 0)
-        lighting.FogEnd = 0
-        lighting.FogStart = 0
-        lighting.ExposureCompensation = -5
+	local character = player.Character
 
-        task.spawn(function()
-            while true do
-                task.wait(1)
-                if not lighting:FindFirstChild("DarkSky") then
-                    darkSky:Clone().Parent = lighting
-                end
-                lighting.GlobalShadows = false
-                lighting.Brightness = 0
-                lighting.ClockTime = 0
-                lighting.OutdoorAmbient = Color3.new(0, 0, 0)
-                lighting.Ambient = Color3.new(0, 0, 0)
-                lighting.FogColor = Color3.new(0, 0, 0)
-                lighting.FogEnd = 0
-                lighting.FogStart = 0
-                lighting.ExposureCompensation = -5
-            end
-        end)
-    end
+	local function protected(object)
+		if not object then
+			return true
+		end
 
-    local function clapWorkspace()
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
-                obj:Destroy()
-            elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-                obj:Destroy()
-            elseif obj:IsA("BasePart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                obj.Reflectance = 0
-            end
-        end
-        
-        pcall(function()
-            workspace.Terrain.WaterWaveSize = 0
-            workspace.Terrain.WaterWaveSpeed = 0
-            workspace.Terrain.WaterReflectance = 0
-            workspace.Terrain.WaterTransparency = 0
-        end)
-    end
+		if object == player or object:IsDescendantOf(player) then
+			return true
+		end
 
-    clapWorkspace()
-    clapLighting()
+		if playerGui and (
+			object == playerGui
+			or object:IsDescendantOf(playerGui)
+		) then
+			return true
+		end
+
+		if character and (
+			object == character
+			or object:IsDescendantOf(character)
+		) then
+			return true
+		end
+
+		local name = tostring(object.Name)
+
+		if name == "rEvents"
+			or name == "equipPetEvent"
+			or name == "muscleEvent"
+			or name == "Protein Egg"
+			or name == "petsFolder"
+			or name == "Unique"
+			or name == "leaderstats"
+			or name == "Strength"
+			or name == "Durability"
+			or name == "boostTimersFolder"
+			or name == "OptimizationOverlay"
+			or name == "T"
+		then
+			return true
+		end
+
+		if object:IsA("RemoteEvent")
+			or object:IsA("RemoteFunction")
+			or object:IsA("BindableEvent")
+		then
+			return true
+		end
+
+		if object:IsDescendantOf(ReplicatedStorage)
+			and (
+				name:find("Event")
+				or name:find("Remote")
+				or name == "rEvents"
+			)
+		then
+			return true
+		end
+
+		return false
+	end
+
+	local function clear(container)
+		if not container then
+			return
+		end
+
+		local keep = {}
+
+		local function mark(object)
+			local current = object
+
+			while current and current ~= game do
+				keep[current] = true
+				current = current.Parent
+			end
+		end
+
+		for _, object in ipairs(container:GetDescendants()) do
+			if protected(object) then
+				mark(object)
+			end
+		end
+
+		for _, object in ipairs(container:GetDescendants()) do
+			if not keep[object] then
+				pcall(function()
+					object:Destroy()
+				end)
+			end
+		end
+	end
+
+	clear(Lighting)
+
+	pcall(function()
+		Lighting.GlobalShadows = false
+		Lighting.FogStart = 9e9
+		Lighting.FogEnd = 9e9
+		Lighting.Brightness = 0
+		Lighting.EnvironmentDiffuseScale = 0
+		Lighting.EnvironmentSpecularScale = 0
+		Lighting.ExposureCompensation = -20
+	end)
+
+	clear(MaterialService)
+
+	for _, sound in ipairs(SoundService:GetDescendants()) do
+		pcall(function()
+			if sound:IsA("Sound") then
+				sound:Stop()
+				sound.Volume = 0
+			end
+		end)
+	end
+
+	clear(SoundService)
+
+	pcall(function()
+		Workspace.Terrain:Clear()
+	end)
+
+	clear(Workspace)
+
+	task.wait(0.25)
+
+	clear(Workspace)
+	clear(ReplicatedStorage)
+	clear(ReplicatedFirst)
+
+	pcall(function()
+		RunService:Set3dRenderingEnabled(false)
+	end)
+
+	local old =
+		playerGui
+		and playerGui:FindFirstChild("OptimizationOverlay")
+
+	if old then
+		old:Destroy()
+	end
+
+	if playerGui then
+		local screen = Instance.new("ScreenGui")
+
+		screen.Name = "OptimizationOverlay"
+		screen.IgnoreGuiInset = true
+		screen.DisplayOrder = 2147483647
+		screen.ResetOnSpawn = false
+		screen.ZIndexBehavior = Enum.ZIndexBehavior.Global
+		screen.Parent = playerGui
+
+		local black = Instance.new("Frame")
+
+		black.Size = UDim2.fromScale(1, 1)
+		black.BackgroundColor3 = Color3.new(0, 0, 0)
+		black.BorderSizePixel = 0
+		black.ZIndex = 2147483647
+		black.Parent = screen
+	end
 end)
-    
 local PlayerData = {
     Backpack = player:WaitForChild("Backpack")
 }
