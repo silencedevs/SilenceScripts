@@ -15,7 +15,7 @@ local lighting = game:GetService("Lighting")
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/librarys/eleriumv2.luau"))()
 local window = library:AddWindow("Silence | Fast Farming - Good Farming " .. displayName, {
     main_color = Color3.fromRGB(138, 0, 0),
-    min_size = Vector2.new(500, 450),
+    min_size = Vector2.new(500, 500),
     can_resize = false
 })
 
