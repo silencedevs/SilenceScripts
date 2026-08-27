@@ -53,14 +53,7 @@ function Utils.greeting()
 	else return "Good Night " .. PlayerData.DisplayName end
 end
 
-if getgenv().sbe ~= "sbevalid" then
-	PlayerData.Player:Kick("Always use the Loader")
-	getgenv().sbe = ""
-	task.wait(0.5)
-	return
-else
-	getgenv().sbe = ""
-end
+
 
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/ghjkl1312/bhkjhk/refs/heads/main/lib.luau", true))()
