@@ -14,7 +14,7 @@ Silence is a multi-game Roblox script project with automatic game detection and 
 ## Usage
 
 1. Join one of the supported games.
-2. Run the following loader your executor of choice:
+2. Run the following loader in your executor of choice:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/main/Loader/Loader.luau"))()
