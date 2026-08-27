@@ -59,7 +59,7 @@ end
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/librarys/eleriumv2.luau", true))()
 
 local window = library:AddWindow("Silence | Main - " .. Utils.greeting(), {
-	main_color = Color3.fromRGB(255, 0, 0),
+	main_color = Color3.fromRGB(138, 0, 0),
 	min_size = Vector2.new(494, 780),
 	can_resize = true,
 })
