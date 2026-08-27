@@ -56,15 +56,11 @@ end
 
 
 
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/ghjkl1312/bhkjhk/refs/heads/main/lib.luau", true))()
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/librarys/eleriumv2.luau", true))()
 
 local window = library:AddWindow("Silence | Main - " .. Utils.greeting(), {
-	title_bar = {Color3.fromRGB(255, 0, 0), Color3.fromRGB(155, 0, 0)},
-	title_bar_transparency = 0.3,
-	background = {Color3.fromRGB(90, 0, 0), Color3.fromRGB(0, 0, 0)},
-	background_transparency = 0.2,
 	main_color = Color3.fromRGB(255, 0, 0),
-	min_size = Vector2.new(450, 450),
+	min_size = Vector2.new(494, 780),
 	can_resize = true,
 })
 
