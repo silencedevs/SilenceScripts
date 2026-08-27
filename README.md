@@ -1,4 +1,4 @@
-# Silence Scripts
+<h1><img src="./assets/silence-logo-round.png" alt="Silence logo" width="40" height="40" align="top"> Silence Scripts</h1>
 
 Silence is a multi-game Roblox script project with automatic game detection and dedicated features for each supported experience.
 
