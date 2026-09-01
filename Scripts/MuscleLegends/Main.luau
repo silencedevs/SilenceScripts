@@ -53,8 +53,23 @@ function Utils.greeting()
 	else return "Good Night " .. PlayerData.DisplayName end
 end
 
+local function deleteAds()
+	for _, portal in pairs(game:GetDescendants()) do
+		if portal.Name == "RobloxForwardPortals" then
+			portal:Destroy()
+		end
+	end
+	if _G.ads then
+		_G.ads:Disconnect()
+	end
 
-
+	_G.ads = game.DescendantAdded:Connect(function(descendant)
+		if descendant.Name == "RobloxForwardPortals" then
+			descendant:Destroy()
+		end
+	end)
+end
+deleteAds()
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/librarys/eleriumv2.luau", true))()
 
