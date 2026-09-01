@@ -1117,6 +1117,5 @@ tabs.info:AddButton("Copy Invite", function()
 end)
 
 tabs.info:AddLabel("")
-tabs.info.wLabel = tabs.info:AddLabel("Silence V4.1.0")
-tabs.info.wLabel.TextSize = 40
+tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.0]")
 tabs.info.wLabel.Font = Enum.Font.Arcade
