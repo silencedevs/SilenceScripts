@@ -681,6 +681,7 @@ task.spawn(function()
 end)
 
 tabs.strength:AddLabel("Reaching Average Speed takes some time!")
+tabs.strength:AddLabel("\nFarming also wont stop if you stop it since its too fast for the Server.")
 
 -- Strength Tab (For bad devices)
 
@@ -916,7 +917,6 @@ task.spawn(function()
 end)
 
 tabs.strength2:AddLabel("For me, 20-40 works the best. Try around!")
-tabs.strength2:AddLabel("Reaching Average Speed takes some time!")
 
 -- Other Tab
 
