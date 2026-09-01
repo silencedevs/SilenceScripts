@@ -30,7 +30,7 @@ lp.player.Idled:Connect(function()
     services.virtualinputmanager:SendKeyEvent(false, Enum.KeyCode.Y, false, game)
 end)
 
-local function deleteAds()
+function deleteAds()
 	for _, portal in pairs(game:GetDescendants()) do
 		if portal.Name == "RobloxForwardPortals" then
 			portal:Destroy()
@@ -67,7 +67,8 @@ local silence = library:AddWindow("Silence | Fast Farming - Hey, " .. lp.display
 
 local tabs = {
     rebirths = silence:AddTab("Rebirths"),
-    strength = silence:AddTab("Strength"),
+    strength = silence:AddTab("Strength (Main)"),
+    strength2 = silence:AddTab("Strength (If Main lags)"),
     other = silence:AddTab("Other"),
     info = silence:AddTab("Info")
 }
@@ -681,6 +682,242 @@ end)
 
 tabs.strength:AddLabel("Reaching Average Speed takes some time!")
 
+-- Strength Tab (For bad devices)
+
+tabs.strength2.leaderstats = lp.player:WaitForChild("leaderstats")
+tabs.strength2.strength = tabs.strength2.leaderstats:WaitForChild("Strength")
+tabs.strength2.durability = lp.player:WaitForChild("Durability")
+tabs.strength2.running = false
+tabs.strength2.workerActive = false
+tabs.strength2.startedAt = 0
+tabs.strength2.totalElapsed = 0
+tabs.strength2.timerStarted = false
+tabs.strength2.gainedBaselineSet = false
+tabs.strength2.startStrength = tabs.strength2.strength.Value
+tabs.strength2.startDurability = tabs.strength2.durability.Value
+tabs.strength2.calculationInterval = 10
+tabs.strength2.lastCalculationAt = tick()
+tabs.strength2.lastCalculatedStrength = tabs.strength2.strength.Value
+tabs.strength2.lastCalculatedDurability = tabs.strength2.durability.Value
+tabs.strength2.repSpeed = 350
+tabs.strength2.pingControl = true
+tabs.strength2.currentPing = 0
+tabs.strength2.Status = tabs.strength2:AddLabel("Status: Inactive")
+tabs.strength2.Runtime = tabs.strength2:AddLabel("Runtime: 0d 0h 0m 0s")
+tabs.strength2.StrengthStats = tabs.strength2:AddLabel("Strength: " .. formatNumber(tabs.strength2.strength.Value) .. " | Gained: 0")
+tabs.strength2.DurabilityStats = tabs.strength2:AddLabel("Durability: " .. formatNumber(tabs.strength2.durability.Value) .. " | Gained: 0")
+tabs.strength2.StrengthPace = tabs.strength2:AddLabel("Strength Pace: -- / Hour | -- / Day")
+tabs.strength2.DurabilityPace = tabs.strength2:AddLabel("Durability Pace: -- / Hour | -- / Day")
+tabs.strength2.StrengthAverage = tabs.strength2:AddLabel("Strength Average: -- / Hour | -- / Day")
+tabs.strength2.DurabilityAverage = tabs.strength2:AddLabel("Durability Average: -- / Hour | -- / Day")
+tabs.strength2.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
+
+tabs.strength2.updateRuntime = function()
+    tabs.strength2.elapsed = tabs.strength2.totalElapsed
+    if tabs.strength2.running and tabs.strength2.timerStarted then
+        tabs.strength2.elapsed = tabs.strength2.elapsed + tick() - tabs.strength2.startedAt
+    end
+
+    tabs.strength2.Runtime.Text = string.format(
+        "Runtime: %dd %dh %dm %ds",
+        math.floor(tabs.strength2.elapsed / 86400),
+        math.floor((tabs.strength2.elapsed % 86400) / 3600),
+        math.floor((tabs.strength2.elapsed % 3600) / 60),
+        math.floor(tabs.strength2.elapsed % 60)
+    )
+end
+
+tabs.strength2.updateStats = function()
+    tabs.strength2.StrengthStats.Text = "Strength: " .. formatNumber(tabs.strength2.strength.Value)
+        .. " | Gained: " .. formatNumber(tabs.strength2.strength.Value - tabs.strength2.startStrength)
+    tabs.strength2.DurabilityStats.Text = "Durability: " .. formatNumber(tabs.strength2.durability.Value)
+        .. " | Gained: " .. formatNumber(tabs.strength2.durability.Value - tabs.strength2.startDurability)
+end
+
+tabs.strength2.updatePace = function()
+    if not tabs.strength2.running or tabs.strength2.timerStarted then
+        return
+    end
+    if tabs.strength2.strength.Value == tabs.strength2.startStrength
+        and tabs.strength2.durability.Value == tabs.strength2.startDurability then
+        return
+    end
+
+    tabs.strength2.timerStarted = true
+    tabs.strength2.startedAt = tick()
+    tabs.strength2.lastCalculationAt = tick()
+    tabs.strength2.lastCalculatedStrength = tabs.strength2.strength.Value
+    tabs.strength2.lastCalculatedDurability = tabs.strength2.durability.Value
+end
+
+tabs.strength2.calculatePace = function()
+    if not tabs.strength2.running or not tabs.strength2.timerStarted then
+        return
+    end
+
+    tabs.strength2.calculationElapsed = tick() - tabs.strength2.lastCalculationAt
+    if tabs.strength2.calculationElapsed < tabs.strength2.calculationInterval then
+        return
+    end
+
+    tabs.strength2.strengthDelta = tabs.strength2.strength.Value - tabs.strength2.lastCalculatedStrength
+    tabs.strength2.durabilityDelta = tabs.strength2.durability.Value - tabs.strength2.lastCalculatedDurability
+    tabs.strength2.strengthHourlyPace = tabs.strength2.strengthDelta / tabs.strength2.calculationElapsed * 3600
+    tabs.strength2.durabilityHourlyPace = tabs.strength2.durabilityDelta / tabs.strength2.calculationElapsed * 3600
+
+    if tabs.strength2.strengthDelta > 0 then
+        tabs.strength2.StrengthPace.Text = "Strength Pace: " .. formatNumber(tabs.strength2.strengthHourlyPace)
+            .. " / Hour | " .. formatNumber(tabs.strength2.strengthHourlyPace * 24) .. " / Day"
+    end
+    if tabs.strength2.durabilityDelta > 0 then
+        tabs.strength2.DurabilityPace.Text = "Durability Pace: " .. formatNumber(tabs.strength2.durabilityHourlyPace)
+            .. " / Hour | " .. formatNumber(tabs.strength2.durabilityHourlyPace * 24) .. " / Day"
+    end
+
+    tabs.strength2.averageElapsed = tabs.strength2.totalElapsed + tick() - tabs.strength2.startedAt
+    if tabs.strength2.averageElapsed > 0 then
+        tabs.strength2.averageStrengthHourly = (tabs.strength2.strength.Value - tabs.strength2.startStrength)
+            / tabs.strength2.averageElapsed * 3600
+        tabs.strength2.averageDurabilityHourly = (tabs.strength2.durability.Value - tabs.strength2.startDurability)
+            / tabs.strength2.averageElapsed * 3600
+        tabs.strength2.StrengthAverage.Text = "Strength Average: " .. formatNumber(tabs.strength2.averageStrengthHourly)
+            .. " / Hour | " .. formatNumber(tabs.strength2.averageStrengthHourly * 24) .. " / Day"
+        tabs.strength2.DurabilityAverage.Text = "Durability Average: " .. formatNumber(tabs.strength2.averageDurabilityHourly)
+            .. " / Hour | " .. formatNumber(tabs.strength2.averageDurabilityHourly * 24) .. " / Day"
+    end
+
+    tabs.strength2.lastCalculationAt = tick()
+    tabs.strength2.lastCalculatedStrength = tabs.strength2.strength.Value
+    tabs.strength2.lastCalculatedDurability = tabs.strength2.durability.Value
+end
+
+tabs.strength2.networkStats = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]
+
+tabs.strength2.getCurrentPing = function()
+    return tabs.strength2.networkStats:GetValue()
+end
+
+tabs.strength2.getAdaptiveSpeed = function(ping)
+    if ping < 80 then
+        return 500
+    elseif ping < 150 then
+        return 300
+    elseif ping < 250 then
+        return 100
+    end
+    return 50
+end
+
+tabs.strength2.workerLoop = function()
+    tabs.strength2.lastPingUpdate = time()
+    tabs.strength2.currentPing = tabs.strength2.getCurrentPing()
+
+    while tabs.strength2.running do
+        if time() - tabs.strength2.lastPingUpdate > 0.5 then
+            tabs.strength2.currentPing = tabs.strength2.getCurrentPing()
+            tabs.strength2.lastPingUpdate = time()
+        end
+
+        tabs.strength2.repsToFire = tabs.strength2.pingControl
+            and tabs.strength2.getAdaptiveSpeed(tabs.strength2.currentPing)
+            or tabs.strength2.repSpeed
+        tabs.strength2.repsToFire = math.min(tabs.strength2.repsToFire, tabs.strength2.repSpeed)
+        tabs.strength2.delayBetweenBatches = math.clamp(tabs.strength2.currentPing / 2500, 0.001, 0.1)
+
+        tabs.strength2.Status.Text = "Status: Farming | " .. formatNumber(tabs.strength2.repsToFire)
+            .. " reps/batch | " .. formatNumber(tabs.strength2.currentPing) .. " ms"
+        tabs.strength2.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
+
+        for repCount = 1, tabs.strength2.repsToFire do
+            if not tabs.strength2.running then
+                break
+            end
+            services.muscleEvent:FireServer("rep")
+            if repCount % 500 == 0 then
+                task.wait()
+            end
+        end
+        task.wait(tabs.strength2.delayBetweenBatches)
+    end
+
+    tabs.strength2.workerActive = false
+    if tabs.strength2.running then
+        tabs.strength2.startWorker()
+    end
+end
+
+tabs.strength2.startWorker = function()
+    if tabs.strength2.workerActive then
+        return
+    end
+    tabs.strength2.workerActive = true
+    task.spawn(tabs.strength2.workerLoop)
+end
+
+tabs.strength2.strength:GetPropertyChangedSignal("Value"):Connect(function()
+    tabs.strength2.updateStats()
+    tabs.strength2.updatePace()
+end)
+
+tabs.strength2.durability:GetPropertyChangedSignal("Value"):Connect(function()
+    tabs.strength2.updateStats()
+    tabs.strength2.updatePace()
+end)
+
+tabs.strength2:AddTextBox("Rep Speed:", function(inputText)
+    tabs.strength2.speedValue = tonumber(inputText)
+    if tabs.strength2.speedValue then
+        tabs.strength2.repSpeed = math.clamp(math.floor(tabs.strength2.speedValue), 1, 1000)
+    end
+end)
+
+tabs.strength2:AddSwitch("Controlled Speed", function(state)
+    tabs.strength2.pingControl = state
+end):Set(true)
+
+tabs.strength2.FastRepToggle = tabs.strength2:AddSwitch("Fast Rep", function(state)
+    tabs.strength2.running = state
+    if state then
+        if not tabs.strength2.gainedBaselineSet then
+            tabs.strength2.startStrength = tabs.strength2.strength.Value
+            tabs.strength2.startDurability = tabs.strength2.durability.Value
+            tabs.strength2.gainedBaselineSet = true
+        end
+        tabs.strength2.timerStarted = false
+        tabs.strength2.startedAt = 0
+        tabs.strength2.lastCalculationAt = tick()
+        tabs.strength2.lastCalculatedStrength = tabs.strength2.strength.Value
+        tabs.strength2.lastCalculatedDurability = tabs.strength2.durability.Value
+        tabs.strength2.Status.Text = "Status: Starting..."
+        tabs.strength2.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
+        tabs.strength2.startWorker()
+    else
+        if tabs.strength2.timerStarted and tabs.strength2.startedAt > 0 then
+            tabs.strength2.totalElapsed = tabs.strength2.totalElapsed + tick() - tabs.strength2.startedAt
+            tabs.strength2.startedAt = 0
+            tabs.strength2.timerStarted = false
+        end
+        tabs.strength2.Status.Text = tabs.strength2.gainedBaselineSet and "Status: Paused" or "Status: Inactive"
+        tabs.strength2.Status.TextColor3 = tabs.strength2.gainedBaselineSet
+            and Color3.fromRGB(255, 180, 70)
+            or Color3.fromRGB(255, 80, 80)
+        tabs.strength2.updateRuntime()
+    end
+end)
+
+tabs.strength2.FastRepToggle:Set(false)
+
+task.spawn(function()
+    while true do
+        tabs.strength2.updateRuntime()
+        tabs.strength2.calculatePace()
+        task.wait(1)
+    end
+end)
+
+tabs.strength2:AddLabel("For me, 20-40 works the best. Try around!")
+tabs.strength2:AddLabel("Reaching Average Speed takes some time!")
+
 -- Other Tab
 
 function unequipPets()
@@ -1117,5 +1354,6 @@ tabs.info:AddButton("Copy Invite", function()
 end)
 
 tabs.info:AddLabel("")
-tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.0]")
+tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.1]")
+tabs.info.wLabel.TextSize = 20
 tabs.info.wLabel.Font = Enum.Font.Arcade
