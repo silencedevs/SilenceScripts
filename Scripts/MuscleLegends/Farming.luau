@@ -1,3 +1,9 @@
+--[[
+    Silence - Ml Farming
+    by Henne @xyzhenrik_
+       Muki @mukimagdich
+]]
+
 local services = {
     players = game:GetService("Players"),
     replicatedstorage = game:GetService("ReplicatedStorage"),

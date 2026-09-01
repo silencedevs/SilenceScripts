@@ -1,3 +1,8 @@
+--[[
+    Silence - Tap Simulator
+    by Henne @xyzhenrik_
+]]
+
 local services = {
     players = game:GetService("Players"),
     replicatedStorage = game:GetService("ReplicatedStorage"),
