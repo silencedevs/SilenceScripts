@@ -2048,7 +2048,7 @@ liftExerciseSwitch = Tabs.Farming:AddSwitch("Auto Lift", function(state)
 	setMachineExerciseState(MachineExerciseData.Lift, MachineExerciseData.Squat, state)
 end)
 
-Tabs.Farming:AddLabel("Glitching:")
+Tabs.Farming:AddLabel("Auto Rock:")
 
 local RockData = {
 	Data = {["Tiny Rock - 0 Dura"] = 0, ["Large Rock - 100 Dura"] = 100, ["Punching Rock - 10 Dura"] = 10,
