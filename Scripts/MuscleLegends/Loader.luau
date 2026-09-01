@@ -1,6 +1,6 @@
 --[[
     Silence - ML Loader
-    made by Henne @xyzhenrik_
+    by Henne @xyzhenrik_
 ]]
 
 local LoaderSystem = {}
