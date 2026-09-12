@@ -276,116 +276,101 @@ local VisibilitySettings = {
 
 
 
-BossTab:AddSwitch("Auto Kill Boss", function(Value)
-    autoKillBoss = Value
 
-    if not Value then
-        return
-    end
+
+Tabs.Main:AddSwitch("Auto Kill Boss", function(state)
+    autoKillBoss = state
+    if not state then return end
 
     task.spawn(function()
         while autoKillBoss do
             pcall(function()
-                local Players = game:GetService("Players")
-                local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-                local player = Players.LocalPlayer
-                local character = player.Character
+                local character = LocalPlayer.Character
                 local root = character and character:FindFirstChild("HumanoidRootPart")
+                if not root then return end
 
-                if not root then
-                    return
-                end
+                local muscleEvent = LocalPlayer:FindFirstChild("muscleEvent")
+                    or game:GetService("ReplicatedStorage"):FindFirstChild("muscleEvent")
 
-                local muscleEvent = player:FindFirstChild("muscleEvent")
-                    or ReplicatedStorage:FindFirstChild("muscleEvent")
-
-                local boss
                 local bossRoot
+                local bossHitbox
 
-               
+                
                 for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("Model") and obj ~= character then
+                    if obj:IsA("BasePart") and obj.Name == "BossDamageHitbox" then
+                        bossHitbox = obj
+                    elseif obj:IsA("Model") and obj ~= character then
                         local humanoid = obj:FindFirstChildOfClass("Humanoid")
 
-                        local targetRoot =
-                            obj:FindFirstChild("HumanoidRootPart")
-                            or obj:FindFirstChild("Torso")
-                            or obj:FindFirstChild("UpperTorso")
-                            or obj.PrimaryPart
+                        if humanoid and humanoid.Health > 0 then
+                            local targetRoot =
+                                obj:FindFirstChild("HumanoidRootPart")
+                                or obj:FindFirstChild("UpperTorso")
+                                or obj:FindFirstChild("Torso")
+                                or obj.PrimaryPart
 
-                        if humanoid and humanoid.Health > 0 and targetRoot then
-                            local name = string.lower(obj.Name)
-                            local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                            if targetRoot then
+                                local name = obj.Name:lower()
+                                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
 
-                            if string.find(name, "boss")
-                            or string.find(parentName, "boss")
-                            or string.find(name, "titan")
-                            or string.find(name, "golem")
-                            or string.find(name, "king")
-                            or string.find(name, "lord")
-                            or humanoid.MaxHealth >= 1000 then
-
-                                boss = obj
-                                bossRoot = targetRoot
-                                break
+                                if name:find("boss")
+                                or parentName:find("boss")
+                                or name:find("titan")
+                                or name:find("golem")
+                                or name:find("king")
+                                or name:find("lord")
+                                or humanoid.MaxHealth >= 1000 then
+                                    bossRoot = targetRoot
+                                    break
+                                end
                             end
                         end
                     end
                 end
 
-              
-                if not bossRoot then
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj:IsA("BasePart") and obj.Name == "BossDamageHitbox" then
-                            bossRoot = obj
-                            break
+                local target = bossRoot or bossHitbox
+                if not target then return end
+
+                n
+                root.CFrame = CFrame.new(
+                    target.Position + Vector3.new(0, 2, 3),
+                    target.Position
+                )
+
+             
+                local punch = character:FindFirstChild("Punch")
+
+                if not punch then
+                    local backpack = LocalPlayer:FindFirstChild("Backpack")
+                    punch = backpack and backpack:FindFirstChild("Punch")
+
+                    if punch then
+                        local humanoid = character:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            humanoid:EquipTool(punch)
                         end
                     end
                 end
 
-                if bossRoot then
-                    
-                    root.CFrame = CFrame.new(
-                        bossRoot.Position + Vector3.new(0, 2, 3),
-                        bossRoot.Position
-                    )
+               
+                if muscleEvent then
+                    muscleEvent:FireServer("punch", "leftHand")
+                    muscleEvent:FireServer("punch", "rightHand")
+                    muscleEvent:FireServer("punch")
+                end
 
-                   
-                    local backpack = player:FindFirstChild("Backpack")
-                    local punch = character:FindFirstChild("Punch")
+                if punch then
+                    punch:Activate()
+                end
 
-                    if not punch and backpack then
-                        punch = backpack:FindFirstChild("Punch")
-
-                        if punch then
-                            local humanoid = character:FindFirstChildOfClass("Humanoid")
-                            if humanoid then
-                                humanoid:EquipTool(punch)
-                            end
-                        end
-                    end
-
-                  
-                    if muscleEvent then
-                        for _ = 1, 15 do
-                            if not autoKillBoss then
-                                break
-                            end
-
-                            muscleEvent:FireServer("punch", "leftHand")
-                            muscleEvent:FireServer("punch", "rightHand")
-                            muscleEvent:FireServer("punch")
-
-                            if punch then
-                                punch:Activate()
-                            end
-                        end
-                    end
+               
+                if bossHitbox and firetouchinterest then
+                    firetouchinterest(bossHitbox, root, 0)
+                    firetouchinterest(bossHitbox, root, 1)
                 end
             end)
 
-            task.wait(0.02)
+            task.wait(0.03)
         end
     end)
 end)
