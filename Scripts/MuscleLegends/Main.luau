@@ -278,7 +278,9 @@ local VisibilitySettings = {
 
 
 
-Tabs.Main:AddSwitch("Auto Kill Boss", function(state)
+local autoKillBoss = false
+
+Tabs.Main:AddSwitch("Auto Kill Boss + Claim Chest", function(state)
     autoKillBoss = state
     if not state then return end
 
@@ -290,12 +292,12 @@ Tabs.Main:AddSwitch("Auto Kill Boss", function(state)
                 if not root then return end
 
                 local muscleEvent = LocalPlayer:FindFirstChild("muscleEvent")
-                    or game:GetService("ReplicatedStorage"):FindFirstChild("muscleEvent")
+                    or ReplicatedStorage:FindFirstChild("muscleEvent")
 
                 local bossRoot
                 local bossHitbox
+                local bossAlive = false
 
-                
                 for _, obj in ipairs(workspace:GetDescendants()) do
                     if obj:IsA("BasePart") and obj.Name == "BossDamageHitbox" then
                         bossHitbox = obj
@@ -321,6 +323,7 @@ Tabs.Main:AddSwitch("Auto Kill Boss", function(state)
                                 or name:find("lord")
                                 or humanoid.MaxHealth >= 1000 then
                                     bossRoot = targetRoot
+                                    bossAlive = true
                                     break
                                 end
                             end
@@ -328,45 +331,79 @@ Tabs.Main:AddSwitch("Auto Kill Boss", function(state)
                     end
                 end
 
-                local target = bossRoot or bossHitbox
-                if not target then return end
+                if bossAlive and bossRoot then
+                    root.CFrame = CFrame.new(
+                        bossRoot.Position + Vector3.new(0, 2, 3),
+                        bossRoot.Position
+                    )
 
-                n
-                root.CFrame = CFrame.new(
-                    target.Position + Vector3.new(0, 2, 3),
-                    target.Position
-                )
+                    local punch = character:FindFirstChild("Punch")
 
-             
-                local punch = character:FindFirstChild("Punch")
+                    if not punch then
+                        local backpack = LocalPlayer:FindFirstChild("Backpack")
+                        punch = backpack and backpack:FindFirstChild("Punch")
 
-                if not punch then
-                    local backpack = LocalPlayer:FindFirstChild("Backpack")
-                    punch = backpack and backpack:FindFirstChild("Punch")
+                        if punch then
+                            local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-                    if punch then
-                        local humanoid = character:FindFirstChildOfClass("Humanoid")
-                        if humanoid then
-                            humanoid:EquipTool(punch)
+                            if humanoid then
+                                humanoid:EquipTool(punch)
+                            end
                         end
                     end
-                end
 
-               
-                if muscleEvent then
-                    muscleEvent:FireServer("punch", "leftHand")
-                    muscleEvent:FireServer("punch", "rightHand")
-                    muscleEvent:FireServer("punch")
-                end
+                    if muscleEvent then
+                        muscleEvent:FireServer("punch", "leftHand")
+                        muscleEvent:FireServer("punch", "rightHand")
+                        muscleEvent:FireServer("punch")
+                    end
 
-                if punch then
-                    punch:Activate()
-                end
+                    if punch then
+                        punch:Activate()
+                    end
 
-               
-                if bossHitbox and firetouchinterest then
-                    firetouchinterest(bossHitbox, root, 0)
-                    firetouchinterest(bossHitbox, root, 1)
+                    if bossHitbox and firetouchinterest then
+                        firetouchinterest(bossHitbox, root, 0)
+                        firetouchinterest(bossHitbox, root, 1)
+                    end
+                else
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        local name = obj.Name:lower()
+
+                        if name == "bosschest"
+                        or name == "bosschestprompt"
+                        or name:find("bosschest") then
+                            local prompt =
+                                obj:IsA("ProximityPrompt") and obj
+                                or obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+                            local part =
+                                obj:IsA("BasePart") and obj
+                                or obj:FindFirstChildWhichIsA("BasePart", true)
+
+                            if part then
+                                root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+                            end
+
+                            if prompt and fireproximityprompt then
+                                fireproximityprompt(prompt)
+                            elseif part and firetouchinterest then
+                                firetouchinterest(part, root, 0)
+                                task.wait(0.05)
+                                firetouchinterest(part, root, 1)
+                            end
+                        end
+                    end
+
+                    local chestRemote = ReplicatedStorage
+                        :FindFirstChild("rEvents")
+                        and ReplicatedStorage.rEvents:FindFirstChild("bossChestOpenedEvent")
+
+                    if chestRemote then
+                        pcall(function()
+                            chestRemote:FireServer()
+                        end)
+                    end
                 end
             end)
 
