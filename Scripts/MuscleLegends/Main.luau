@@ -278,133 +278,77 @@ local VisibilitySettings = {
 
 
 
-Tabs.Main:AddSwitch("Auto Kill Boss + Claim Chest", function(state)
-    if not state then
-        _G.AutoKillBossLoop = false
+local autoBoss = false
+local autoCollectChest = false
+local lockedBoss = nil
+
+Tabs.Main:AddSwitch("Auto Boss", function(bool)
+    autoBoss = bool
+
+    if not bool then
+        lockedBoss = nil
         return
     end
 
-    _G.AutoKillBossLoop = true
-
     task.spawn(function()
-        while _G.AutoKillBossLoop do
+        while autoBoss do
             pcall(function()
                 local character = LocalPlayer.Character
                 local root = character and character:FindFirstChild("HumanoidRootPart")
-                if not root then return end
 
-                local muscleEvent = LocalPlayer:FindFirstChild("muscleEvent")
-                    or ReplicatedStorage:FindFirstChild("muscleEvent")
-
-                local boss
-                local bossRoot
-                local bossHitbox
-
-                for _, obj in ipairs(workspace:GetDescendants()) do
-                    if obj:IsA("BasePart") and obj.Name == "BossDamageHitbox" then
-                        bossHitbox = obj
-                    end
-
-                    if obj:IsA("Model") and obj ~= character then
-                        local humanoid = obj:FindFirstChildOfClass("Humanoid")
-
-                        if humanoid and humanoid.Health > 0 then
-                            local targetRoot =
-                                obj:FindFirstChild("HumanoidRootPart")
-                                or obj:FindFirstChild("UpperTorso")
-                                or obj:FindFirstChild("Torso")
-                                or obj:FindFirstChild("Root")
-                                or obj.PrimaryPart
-
-                            if targetRoot then
-                                local name = obj.Name:lower()
-                                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
-
-                                if name == "boss"
-                                or name:find("boss")
-                                or parentName:find("boss") then
-                                    boss = obj
-                                    bossRoot = targetRoot
-                                    break
-                                end
-                            end
-                        end
-                    end
+                if not root then
+                    return
                 end
 
-                if boss and bossRoot then
+                local boss = findBoss()
+                local hitbox = findBossHitbox()
+
+                local target = boss and getBossRoot(boss) or hitbox
+
+                if target then
                     root.CFrame = CFrame.new(
-                        bossRoot.Position + Vector3.new(0, 2, 3),
-                        bossRoot.Position
+                        target.Position + Vector3.new(0, 2, 3),
+                        target.Position
                     )
 
-                    local punch = character:FindFirstChild("Punch")
-                    local backpack = LocalPlayer:FindFirstChild("Backpack")
-
-                    if not punch and backpack then
-                        punch = backpack:FindFirstChild("Punch")
-
-                        if punch then
-                            local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-                            if humanoid then
-                                humanoid:EquipTool(punch)
-                            end
-                        end
-                    end
-
                     for _ = 1, 15 do
-                        if not _G.AutoKillBossLoop then
+                        if not autoBoss then
                             break
                         end
 
-                        if muscleEvent then
-                            muscleEvent:FireServer("punch", "leftHand")
-                            muscleEvent:FireServer("punch", "rightHand")
-                            muscleEvent:FireServer("punch")
-                        end
-
-                        if punch then
-                            punch:Activate()
-                        end
+                        attackBoss()
                     end
 
-                    if bossHitbox and firetouchinterest then
-                        firetouchinterest(bossHitbox, root, 0)
-                        firetouchinterest(bossHitbox, root, 1)
+                    if hitbox and firetouchinterest then
+                        pcall(function()
+                            firetouchinterest(hitbox, root, 0)
+                            firetouchinterest(hitbox, root, 1)
+                        end)
                     end
                 else
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        local name = obj.Name:lower()
-
-                        if name == "bosschest"
-                        or name == "bosschestprompt"
-                        or name:find("bosschest") then
-                            local part =
-                                obj:IsA("BasePart") and obj
-                                or obj:FindFirstChildWhichIsA("BasePart", true)
-
-                            local prompt =
-                                obj:IsA("ProximityPrompt") and obj
-                                or obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-
-                            if part then
-                                root.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                            end
-
-                            if prompt and fireproximityprompt then
-                                fireproximityprompt(prompt)
-                            elseif part and firetouchinterest then
-                                firetouchinterest(part, root, 0)
-                                task.wait(0.03)
-                                firetouchinterest(part, root, 1)
-                            end
-                        end
-                    end
+                    lockedBoss = nil
                 end
             end)
 
             task.wait(0.02)
+        end
+    end)
+end)
+
+Tabs.Main:AddSwitch("Auto Collect Chest", function(bool)
+    autoCollectChest = bool
+
+    if not bool then
+        return
+    end
+
+    task.spawn(function()
+        while autoCollectChest do
+            pcall(function()
+                claimBossChest()
+            end)
+
+            task.wait(0.25)
         end
     end)
 end)
