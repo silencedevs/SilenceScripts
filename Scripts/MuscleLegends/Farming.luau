@@ -85,6 +85,211 @@ function formatNumber(num)
     return string.format("%.0f", num)
 end
 
+-- Right here comes my beautiful pet dictionary and its equip funcs
+
+local PETS = {
+    ["Omega Overlord"] = {
+        repSpeed = 20,
+        strength = 0,
+        durability = 0,
+        rebirth = 0,
+    },
+
+    ["Swift Samurai"] = {
+        repSpeed = 15,
+        strength = 0,
+        durability = 0,
+        rebirth = 0,
+    },
+
+    ["Powercore Hound"] = {
+        repSpeed = 0,
+        strength = 25,
+        durability = 15,
+        rebirth = 0,
+    },
+
+    ["Titanium Hydra"] = {
+        repSpeed = 0,
+        strength = 0,
+        durability = 0,
+        rebirth = 2,
+    },
+
+    ["Tribal Overlord"] = {
+        repSpeed = 0,
+        strength = 0,
+        durability = 0,
+        rebirth = 2,
+    },
+	["Inferno Unicorn"] = {
+		repSpeed = 0,
+		strength = 25,
+		durability = 25,
+		rebirth = 0,
+	},
+	["Common Boss Pet"] = {
+		repSpeed = 5,
+		strength = 0,
+		durability = 0,
+		rebirth = 0,
+	},
+	["Rare Boss Pet"] = {
+		repSpeed = 10,
+		strength = 0,
+		durability = 0,
+		rebirth = 0,
+	},
+	["Epic Boss Pet"] = {
+		repSpeed = 0,
+		strength = 5,
+		durability = 0,
+		rebirth = 0,
+	},
+	["Rainbow Boss Pet"] = {
+		repSpeed = 0,
+		strength = 7,
+		durability = 0,
+		rebirth = 0,
+	},
+	["Legendary Boss Pet"] = {
+		repSpeed = 0,
+		strength = 10,
+		durability = 0,
+		rebirth = 0,
+	},
+	["Mythic Boss Pet"] = {
+		repSpeed = 0,
+		strength = 20,
+		durability = 0,
+		rebirth = 0,
+	},
+}
+
+local MAX_PET_SLOTS = 12
+local TARGET_REP_SPEED = 100
+
+local function unequipConfiguredPets()
+    for _, folder in ipairs(lp.player.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in ipairs(folder:GetChildren()) do
+                services.replicatedstorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
+            end
+        end
+    end
+    task.wait(0.1)
+end
+
+local function equipConfiguredPet(pet)
+    services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
+end
+
+local function getOwnedConfiguredPets()
+    local ownedPets = {}
+
+    for _, folder in ipairs(lp.player.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in ipairs(folder:GetChildren()) do
+                local config = PETS[pet.Name]
+                if config then
+                    table.insert(ownedPets, {
+                        instance = pet,
+                        name = pet.Name,
+                        repSpeed = config.repSpeed or 0,
+                        strength = config.strength or 0,
+                        durability = config.durability or 0,
+                        rebirth = config.rebirth or 0,
+                    })
+                end
+            end
+        end
+    end
+
+    return ownedPets
+end
+
+local function equipBestFarmingPets()
+    unequipConfiguredPets()
+
+    local pets = getOwnedConfiguredPets()
+    local equipped = {}
+    local equippedCount = 0
+    local currentRepSpeed = 0
+
+    table.sort(pets, function(a, b)
+        return a.repSpeed > b.repSpeed
+    end)
+
+    for _, pet in ipairs(pets) do
+        if equippedCount >= MAX_PET_SLOTS or currentRepSpeed >= TARGET_REP_SPEED then
+            break
+        end
+
+        if pet.repSpeed > 0 then
+            equipConfiguredPet(pet.instance)
+            equipped[pet.instance] = true
+            equippedCount = equippedCount + 1
+            currentRepSpeed = currentRepSpeed + pet.repSpeed
+        end
+    end
+
+    local remainingPets = {}
+
+    for _, pet in ipairs(pets) do
+        if not equipped[pet.instance] then
+            table.insert(remainingPets, pet)
+        end
+    end
+
+    table.sort(remainingPets, function(a, b)
+        local scoreA = a.strength + a.durability
+        local scoreB = b.strength + b.durability
+        return scoreA > scoreB
+    end)
+
+    for _, pet in ipairs(remainingPets) do
+        if equippedCount >= MAX_PET_SLOTS then
+            break
+        end
+
+        if pet.strength > 0 or pet.durability > 0 then
+            equipConfiguredPet(pet.instance)
+            equipped[pet.instance] = true
+            equippedCount = equippedCount + 1
+        end
+    end
+
+    return currentRepSpeed, equippedCount
+end
+
+local function equipBestRebirthPets()
+    unequipConfiguredPets()
+
+    local pets = getOwnedConfiguredPets()
+
+    table.sort(pets, function(a, b)
+        return a.rebirth > b.rebirth
+    end)
+
+    local equippedCount = 0
+    local totalRebirthMultiplier = 0
+
+    for _, pet in ipairs(pets) do
+        if equippedCount >= MAX_PET_SLOTS then
+            break
+        end
+
+        if pet.rebirth > 0 then
+            equipConfiguredPet(pet.instance)
+            equippedCount = equippedCount + 1
+            totalRebirthMultiplier = totalRebirthMultiplier + pet.rebirth
+        end
+    end
+
+    return totalRebirthMultiplier, equippedCount
+end
+
+
 -- Rebirth Tab
 
 tabs.rebirths.leaderstats = lp.player:WaitForChild("leaderstats")
@@ -193,143 +398,17 @@ tabs.rebirths.updatePace = function()
     tabs.rebirths.lastRebirthValue = tabs.rebirths.rebirths.Value
 end
 
+
 tabs.rebirths.unequipAllPets = function()
-    tabs.rebirths.petFolders = lp.player.petsFolder:GetChildren()
-    tabs.rebirths.folderIndex = 1
-    while tabs.rebirths.folderIndex <= #tabs.rebirths.petFolders do
-        tabs.rebirths.petFolder = tabs.rebirths.petFolders[tabs.rebirths.folderIndex]
-        if tabs.rebirths.petFolder:IsA("Folder") then
-            tabs.rebirths.pets = tabs.rebirths.petFolder:GetChildren()
-            tabs.rebirths.petIndex = 1
-            while tabs.rebirths.petIndex <= #tabs.rebirths.pets do
-                tabs.rebirths.pet = tabs.rebirths.pets[tabs.rebirths.petIndex]
-                services.replicatedstorage.rEvents.equipPetEvent:FireServer("unequipPet", tabs.rebirths.pet)
-                tabs.rebirths.petIndex = tabs.rebirths.petIndex + 1
-            end
-        end
-        tabs.rebirths.folderIndex = tabs.rebirths.folderIndex + 1
-    end
-    task.wait(0.1)
+    unequipConfiguredPets()
 end
 
 tabs.rebirths.equipFarmingPets = function()
-    tabs.rebirths.unequipAllPets()
-
-    tabs.rebirths.omegas = {}
-    tabs.rebirths.swifts = {}
-    tabs.rebirths.hounds = {}
-    tabs.rebirths.uniquePets = lp.player.petsFolder.Unique:GetChildren()
-    tabs.rebirths.petIndex = 1
-
-    while tabs.rebirths.petIndex <= #tabs.rebirths.uniquePets do
-        tabs.rebirths.pet = tabs.rebirths.uniquePets[tabs.rebirths.petIndex]
-        if tabs.rebirths.pet.Name == "Omega Overlord" then
-            table.insert(tabs.rebirths.omegas, tabs.rebirths.pet)
-        elseif tabs.rebirths.pet.Name == "Swift Samurai" then
-            table.insert(tabs.rebirths.swifts, tabs.rebirths.pet)
-        elseif tabs.rebirths.pet.Name == "Powercore Hound" then
-            table.insert(tabs.rebirths.hounds, tabs.rebirths.pet)
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex + 1
-    end
-
-    tabs.rebirths.equippedCount = 0
-    tabs.rebirths.currentPercent = 0
-
-    tabs.rebirths.petIndex = #tabs.rebirths.omegas
-    while tabs.rebirths.petIndex >= 1 do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots and tabs.rebirths.currentPercent < 100 then
-            tabs.rebirths.pet = table.remove(tabs.rebirths.omegas, tabs.rebirths.petIndex)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.currentPercent = tabs.rebirths.currentPercent + 20
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex - 1
-    end
-
-    tabs.rebirths.petIndex = #tabs.rebirths.swifts
-    while tabs.rebirths.petIndex >= 1 do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots and tabs.rebirths.currentPercent < 100 then
-            tabs.rebirths.pet = table.remove(tabs.rebirths.swifts, tabs.rebirths.petIndex)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.currentPercent = tabs.rebirths.currentPercent + 15
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex - 1
-    end
-
-    if tabs.rebirths.currentPercent >= 100 then
-        tabs.rebirths.petIndex = #tabs.rebirths.hounds
-        while tabs.rebirths.petIndex >= 1 do
-            if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots then
-                tabs.rebirths.pet = table.remove(tabs.rebirths.hounds, tabs.rebirths.petIndex)
-                services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-                tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-            end
-            tabs.rebirths.petIndex = tabs.rebirths.petIndex - 1
-        end
-    end
-
-    tabs.rebirths.petIndex = #tabs.rebirths.omegas
-    while tabs.rebirths.petIndex >= 1 do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots then
-            tabs.rebirths.pet = table.remove(tabs.rebirths.omegas, tabs.rebirths.petIndex)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex - 1
-    end
-
-    tabs.rebirths.petIndex = #tabs.rebirths.swifts
-    while tabs.rebirths.petIndex >= 1 do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots then
-            tabs.rebirths.pet = table.remove(tabs.rebirths.swifts, tabs.rebirths.petIndex)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex - 1
-    end
+    equipBestFarmingPets()
 end
 
 tabs.rebirths.equipRebirthPets = function()
-    tabs.rebirths.unequipAllPets()
-
-    tabs.rebirths.hydras = {}
-    tabs.rebirths.tribals = {}
-    tabs.rebirths.uniquePets = lp.player.petsFolder.Unique:GetChildren()
-    tabs.rebirths.petIndex = 1
-
-    while tabs.rebirths.petIndex <= #tabs.rebirths.uniquePets do
-        tabs.rebirths.pet = tabs.rebirths.uniquePets[tabs.rebirths.petIndex]
-        if tabs.rebirths.pet.Name == "Titanium Hydra" then
-            table.insert(tabs.rebirths.hydras, tabs.rebirths.pet)
-        elseif tabs.rebirths.pet.Name == "Tribal Overlord" then
-            table.insert(tabs.rebirths.tribals, tabs.rebirths.pet)
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex + 1
-    end
-
-    tabs.rebirths.equippedCount = 0
-
-    tabs.rebirths.petIndex = 1
-    while tabs.rebirths.petIndex <= #tabs.rebirths.hydras do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots then
-            tabs.rebirths.pet = tabs.rebirths.hydras[tabs.rebirths.petIndex]
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex + 1
-    end
-
-    tabs.rebirths.petIndex = 1
-    while tabs.rebirths.petIndex <= #tabs.rebirths.tribals do
-        if tabs.rebirths.equippedCount < tabs.rebirths.maxSlots then
-            tabs.rebirths.pet = tabs.rebirths.tribals[tabs.rebirths.petIndex]
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.rebirths.pet)
-            tabs.rebirths.equippedCount = tabs.rebirths.equippedCount + 1
-        end
-        tabs.rebirths.petIndex = tabs.rebirths.petIndex + 1
-    end
+    equipBestRebirthPets()
 end
 
 tabs.rebirths.performRebirth = function()
@@ -1257,78 +1336,7 @@ end
 end)
 
 tabs.other:AddButton("Equip Rep Pets", function()
-    for _, folder in pairs(lp.player.petsFolder:GetChildren()) do
-        if folder:IsA("Folder") then
-            for _, pet in pairs(folder:GetChildren()) do
-                services.replicatedstorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
-            end
-        end
-    end
-    task.wait(0.2)
-
-    tabs.other.omegas = {}
-    tabs.other.swifts = {}
-    tabs.other.hounds = {}
-
-    for _, pet in pairs(lp.player.petsFolder.Unique:GetChildren()) do
-        if pet.Name == "Omega Overlord" then table.insert(tabs.other.omegas, pet)
-        elseif pet.Name == "Swift Samurai" then table.insert(tabs.other.swifts, pet)
-        elseif pet.Name == "Powercore Hound" then table.insert(tabs.other.hounds, pet)
-        end
-    end
-
-    tabs.other.equippedCount = 0
-    tabs.other.currentPercent = 0
-    tabs.other.maxSlots = 9
-
-    for i = #tabs.other.omegas, 1, -1 do
-        if tabs.other.equippedCount < tabs.other.maxSlots and tabs.other.currentPercent < 100 then
-            tabs.other.pet = table.remove(tabs.other.omegas, i)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.other.pet)
-            tabs.other.currentPercent = tabs.other.currentPercent + 20
-            tabs.other.equippedCount = tabs.other.equippedCount + 1
-            task.wait(0.1)
-        end
-    end
-
-    for i = #tabs.other.swifts, 1, -1 do
-        if tabs.other.equippedCount < tabs.other.maxSlots and tabs.other.currentPercent < 100 then
-            tabs.other.pet = table.remove(tabs.other.swifts, i)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.other.pet)
-            tabs.other.currentPercent = tabs.other.currentPercent + 15
-            tabs.other.equippedCount = tabs.other.equippedCount + 1
-            task.wait(0.1)
-        end
-    end
-
-    if tabs.other.currentPercent >= 100 then
-        for i = #tabs.other.hounds, 1, -1 do
-            if tabs.other.equippedCount < tabs.other.maxSlots then
-                tabs.other.pet = table.remove(tabs.other.hounds, i)
-                services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.other.pet)
-                tabs.other.equippedCount = tabs.other.equippedCount + 1
-                task.wait(0.1)
-            end
-        end
-    end
-
-    for i = #tabs.other.omegas, 1, -1 do
-        if tabs.other.equippedCount < tabs.other.maxSlots then
-            tabs.other.pet = table.remove(tabs.other.omegas, i)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.other.pet)
-            tabs.other.equippedCount = tabs.other.equippedCount + 1
-            task.wait(0.1)
-        end
-    end
-
-    for i = #tabs.other.swifts, 1, -1 do
-        if tabs.other.equippedCount < tabs.other.maxSlots then
-            tabs.other.pet = table.remove(tabs.other.swifts, i)
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", tabs.other.pet)
-            tabs.other.equippedCount = tabs.other.equippedCount + 1
-            task.wait(0.1)
-        end
-    end
+    equipBestFarmingPets()
 end)
 
 tabs.info:Show()
@@ -1356,4 +1364,4 @@ end)
 tabs.info:AddLabel("")
 tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.1]")
 tabs.info.wLabel.TextSize = 20
-tabs.info.wLabel.Font = Enum.Font.Arcade
+tabs.info.wLabel.Font = Enum.Font.Arcade_
