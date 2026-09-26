@@ -529,7 +529,7 @@ tabs.strength.lastCalculationAt = tick()
 tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
 tabs.strength.lastCalculatedDurability = tabs.strength.durability.Value
 tabs.strength.initialSendRate = 200
-tabs.strength.maxSendRate = 659
+tabs.strength.maxSendRate = 800
 tabs.strength.sendRate = tabs.strength.initialSendRate
 tabs.strength.sendTokens = 0
 tabs.strength.maxBurst = 24
@@ -732,7 +732,7 @@ tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(i
     end
 end, {clear = false})
 
-tabs.strength:AddLabel("Recommended Speed: 659, more = lag")
+tabs.strength:AddLabel("Recommended Speed: 800, more = lag")
 
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
     tabs.strength.running = state
