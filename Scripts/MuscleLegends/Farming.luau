@@ -529,7 +529,7 @@ tabs.strength.lastCalculationAt = tick()
 tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
 tabs.strength.lastCalculatedDurability = tabs.strength.durability.Value
 tabs.strength.initialSendRate = 200
-tabs.strength.maxSendRate = 1200
+tabs.strength.maxSendRate = 659
 tabs.strength.sendRate = tabs.strength.initialSendRate
 tabs.strength.sendTokens = 0
 tabs.strength.maxBurst = 24
@@ -720,7 +720,7 @@ tabs.strength.durability:GetPropertyChangedSignal("Value"):Connect(function()
     tabs.strength.updatePace()
 end)
 
-tabs.strength:AddTextBox("Max reps/s:", function(inputText)
+tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(inputText)
     tabs.strength.maxSendRate = tonumber(inputText)
 
     if tabs.strengthmaxSendRate then
@@ -730,7 +730,9 @@ tabs.strength:AddTextBox("Max reps/s:", function(inputText)
             tabs.strength.maxSendRate
         )
     end
-end)
+end, {clear = false})
+
+tabs.strength:AddLabel("Recommended Speed: 659, more = lag")
 
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
     tabs.strength.running = state
@@ -1085,17 +1087,13 @@ task.spawn(function()
 end)
 
 function eatEgg()
-    local character = lp.player.Character
-    local backpack = lp.player:FindFirstChild("Backpack")
-    local tool = (character and character:FindFirstChild("Protein Egg"))
-        or (backpack and backpack:FindFirstChild("Protein Egg"))
-
-    if not tool then
-        return
-    end
-
-    for _ = 1, 10 do
-        services.muscleEvent:FireServer("proteinEgg", tool)
+    tabs.other.character = lp.player.Character
+    tabs.other.backpack = lp.player:FindFirstChild("Backpack")
+    tabs.other.tool = (tabs.other.character and tabs.other.character:FindFirstChild("Protein Egg")) or (tabs.other.backpack and tabs.other.backpack:FindFirstChild("Protein Egg"))
+    if tabs.other.tool then
+        for _ = 1, 10 do
+            services.muscleEvent:FireServer("proteinEgg", tabs.other.tool)
+        end
     end
 end
 
