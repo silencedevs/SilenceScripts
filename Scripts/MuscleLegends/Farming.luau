@@ -85,6 +85,13 @@ function formatNumber(num)
     return string.format("%.0f", num)
 end
 
+function formatPace(ratePerSecond)
+    return formatNumber(ratePerSecond) .. "/s | "
+        .. formatNumber(ratePerSecond * 60) .. "/min | "
+        .. formatNumber(ratePerSecond * 3600) .. "/h | "
+        .. formatNumber(ratePerSecond * 86400) .. "/d"
+end
+
 -- Right here comes my beautiful pet dictionary and its equip funcs
 
 local PETS = {
@@ -164,6 +171,12 @@ local PETS = {
 		durability = 0,
 		rebirth = 0,
 	},
+    ["Inferno Drake"] = {
+        repSpeed = 40,
+        strength = 0,
+        durability = 0,
+        rebirth = 0,
+    },
 }
 
 local MAX_PET_SLOTS = 12
@@ -532,10 +545,10 @@ tabs.strength.Status = tabs.strength:AddLabel("Status: Inactive")
 tabs.strength.Runtime = tabs.strength:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.strength.StrengthStats = tabs.strength:AddLabel("Strength: " .. formatNumber(tabs.strength.strength.Value) .. " | Gained: 0")
 tabs.strength.DurabilityStats = tabs.strength:AddLabel("Durability: " .. formatNumber(tabs.strength.durability.Value) .. " | Gained: 0")
-tabs.strength.StrengthPace = tabs.strength:AddLabel("Strength Pace: -- / Hour | -- / Day")
-tabs.strength.DurabilityPace = tabs.strength:AddLabel("Durability Pace: -- / Hour | -- / Day")
-tabs.strength.StrengthAverage = tabs.strength:AddLabel("Strength Average: -- / Hour | -- / Day")
-tabs.strength.DurabilityAverage = tabs.strength:AddLabel("Durability Average: -- / Hour | -- / Day")
+tabs.strength.StrengthPace = tabs.strength:AddLabel("Str Pace: --/s | --/min | --/h | --/d")
+tabs.strength.DurabilityPace = tabs.strength:AddLabel("Dura Pace: --/s | --/min | --/h | --/d")
+tabs.strength.StrengthAverage = tabs.strength:AddLabel("Str Ø: --/s | --/min | --/h | --/d")
+tabs.strength.DurabilityAverage = tabs.strength:AddLabel("Dura Ø: --/s | --/min | --/h | --/d")
 tabs.strength.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
 
 tabs.strength.updateRuntime = function()
@@ -595,27 +608,23 @@ tabs.strength.calculatePace = function()
     tabs.strength.calculationElapsed = tick() - tabs.strength.lastCalculationAt
     tabs.strength.strengthDelta = tabs.strength.strength.Value - tabs.strength.lastCalculatedStrength
     tabs.strength.durabilityDelta = tabs.strength.durability.Value - tabs.strength.lastCalculatedDurability
-    tabs.strength.strengthHourlyPace = tabs.strength.strengthDelta / tabs.strength.calculationElapsed * 3600
-    tabs.strength.durabilityHourlyPace = tabs.strength.durabilityDelta / tabs.strength.calculationElapsed * 3600
+    tabs.strength.strengthPacePerSecond = tabs.strength.strengthDelta / tabs.strength.calculationElapsed
+    tabs.strength.durabilityPacePerSecond = tabs.strength.durabilityDelta / tabs.strength.calculationElapsed
 
     if tabs.strength.strengthDelta > 0 then
-        tabs.strength.StrengthPace.Text = "Strength Pace: " .. formatNumber(tabs.strength.strengthHourlyPace)
-            .. " / Hour | " .. formatNumber(tabs.strength.strengthHourlyPace * 24) .. " / Day"
+        tabs.strength.StrengthPace.Text = "Str Pace: " .. formatPace(tabs.strength.strengthPacePerSecond)
     end
     if tabs.strength.durabilityDelta > 0 then
-        tabs.strength.DurabilityPace.Text = "Durability Pace: " .. formatNumber(tabs.strength.durabilityHourlyPace)
-            .. " / Hour | " .. formatNumber(tabs.strength.durabilityHourlyPace * 24) .. " / Day"
+        tabs.strength.DurabilityPace.Text = "Dura Pace: " .. formatPace(tabs.strength.durabilityPacePerSecond)
     end
 
     tabs.strength.averageElapsed = tabs.strength.totalElapsed + tick() - tabs.strength.startedAt
-    tabs.strength.averageStrengthHourly = (tabs.strength.strength.Value - tabs.strength.startStrength)
-        / tabs.strength.averageElapsed * 3600
-    tabs.strength.averageDurabilityHourly = (tabs.strength.durability.Value - tabs.strength.startDurability)
-        / tabs.strength.averageElapsed * 3600
-    tabs.strength.StrengthAverage.Text = "Strength Average: " .. formatNumber(tabs.strength.averageStrengthHourly)
-        .. " / Hour | " .. formatNumber(tabs.strength.averageStrengthHourly * 24) .. " / Day"
-    tabs.strength.DurabilityAverage.Text = "Durability Average: " .. formatNumber(tabs.strength.averageDurabilityHourly)
-        .. " / Hour | " .. formatNumber(tabs.strength.averageDurabilityHourly * 24) .. " / Day"
+    tabs.strength.averageStrengthPerSecond = (tabs.strength.strength.Value - tabs.strength.startStrength)
+        / tabs.strength.averageElapsed
+    tabs.strength.averageDurabilityPerSecond = (tabs.strength.durability.Value - tabs.strength.startDurability)
+        / tabs.strength.averageElapsed
+    tabs.strength.StrengthAverage.Text = "Str Ø: " .. formatPace(tabs.strength.averageStrengthPerSecond)
+    tabs.strength.DurabilityAverage.Text = "Dura Ø: " .. formatPace(tabs.strength.averageDurabilityPerSecond)
 
     tabs.strength.lastCalculationAt = tick()
     tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
@@ -711,6 +720,18 @@ tabs.strength.durability:GetPropertyChangedSignal("Value"):Connect(function()
     tabs.strength.updatePace()
 end)
 
+tabs.strength:AddTextBox("Max reps/s:", function(inputText)
+    tabs.strength.maxSendRate = tonumber(inputText)
+
+    if tabs.strengthmaxSendRate then
+        tabs.strength.maxSendRate = math.max(1, tabs.strength.maxSendRate)
+        tabs.strength.sendRate = math.min(
+            tabs.strength.sendRate,
+            tabs.strength.maxSendRate
+        )
+    end
+end)
+
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
     tabs.strength.running = state
     if state then
@@ -786,10 +807,10 @@ tabs.strength2.Status = tabs.strength2:AddLabel("Status: Inactive")
 tabs.strength2.Runtime = tabs.strength2:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.strength2.StrengthStats = tabs.strength2:AddLabel("Strength: " .. formatNumber(tabs.strength2.strength.Value) .. " | Gained: 0")
 tabs.strength2.DurabilityStats = tabs.strength2:AddLabel("Durability: " .. formatNumber(tabs.strength2.durability.Value) .. " | Gained: 0")
-tabs.strength2.StrengthPace = tabs.strength2:AddLabel("Strength Pace: -- / Hour | -- / Day")
-tabs.strength2.DurabilityPace = tabs.strength2:AddLabel("Durability Pace: -- / Hour | -- / Day")
-tabs.strength2.StrengthAverage = tabs.strength2:AddLabel("Strength Average: -- / Hour | -- / Day")
-tabs.strength2.DurabilityAverage = tabs.strength2:AddLabel("Durability Average: -- / Hour | -- / Day")
+tabs.strength2.StrengthPace = tabs.strength2:AddLabel("Str Pace: --/s | --/min | --/h | --/d")
+tabs.strength2.DurabilityPace = tabs.strength2:AddLabel("Dura Pace: --/s | --/min | --/h | --/d")
+tabs.strength2.StrengthAverage = tabs.strength2:AddLabel("Str Ø: --/s | --/min | --/h | --/d")
+tabs.strength2.DurabilityAverage = tabs.strength2:AddLabel("Dura Ø: --/s | --/min | --/h | --/d")
 tabs.strength2.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
 
 tabs.strength2.updateRuntime = function()
@@ -842,28 +863,24 @@ tabs.strength2.calculatePace = function()
 
     tabs.strength2.strengthDelta = tabs.strength2.strength.Value - tabs.strength2.lastCalculatedStrength
     tabs.strength2.durabilityDelta = tabs.strength2.durability.Value - tabs.strength2.lastCalculatedDurability
-    tabs.strength2.strengthHourlyPace = tabs.strength2.strengthDelta / tabs.strength2.calculationElapsed * 3600
-    tabs.strength2.durabilityHourlyPace = tabs.strength2.durabilityDelta / tabs.strength2.calculationElapsed * 3600
+    tabs.strength2.strengthPacePerSecond = tabs.strength2.strengthDelta / tabs.strength2.calculationElapsed
+    tabs.strength2.durabilityPacePerSecond = tabs.strength2.durabilityDelta / tabs.strength2.calculationElapsed
 
     if tabs.strength2.strengthDelta > 0 then
-        tabs.strength2.StrengthPace.Text = "Strength Pace: " .. formatNumber(tabs.strength2.strengthHourlyPace)
-            .. " / Hour | " .. formatNumber(tabs.strength2.strengthHourlyPace * 24) .. " / Day"
+        tabs.strength2.StrengthPace.Text = "Str Pace: " .. formatPace(tabs.strength2.strengthPacePerSecond)
     end
     if tabs.strength2.durabilityDelta > 0 then
-        tabs.strength2.DurabilityPace.Text = "Durability Pace: " .. formatNumber(tabs.strength2.durabilityHourlyPace)
-            .. " / Hour | " .. formatNumber(tabs.strength2.durabilityHourlyPace * 24) .. " / Day"
+        tabs.strength2.DurabilityPace.Text = "Dura Pace: " .. formatPace(tabs.strength2.durabilityPacePerSecond)
     end
 
     tabs.strength2.averageElapsed = tabs.strength2.totalElapsed + tick() - tabs.strength2.startedAt
     if tabs.strength2.averageElapsed > 0 then
-        tabs.strength2.averageStrengthHourly = (tabs.strength2.strength.Value - tabs.strength2.startStrength)
-            / tabs.strength2.averageElapsed * 3600
-        tabs.strength2.averageDurabilityHourly = (tabs.strength2.durability.Value - tabs.strength2.startDurability)
-            / tabs.strength2.averageElapsed * 3600
-        tabs.strength2.StrengthAverage.Text = "Strength Average: " .. formatNumber(tabs.strength2.averageStrengthHourly)
-            .. " / Hour | " .. formatNumber(tabs.strength2.averageStrengthHourly * 24) .. " / Day"
-        tabs.strength2.DurabilityAverage.Text = "Durability Average: " .. formatNumber(tabs.strength2.averageDurabilityHourly)
-            .. " / Hour | " .. formatNumber(tabs.strength2.averageDurabilityHourly * 24) .. " / Day"
+        tabs.strength2.averageStrengthPerSecond = (tabs.strength2.strength.Value - tabs.strength2.startStrength)
+            / tabs.strength2.averageElapsed
+        tabs.strength2.averageDurabilityPerSecond = (tabs.strength2.durability.Value - tabs.strength2.startDurability)
+            / tabs.strength2.averageElapsed
+        tabs.strength2.StrengthAverage.Text = "Str Ø: " .. formatPace(tabs.strength2.averageStrengthPerSecond)
+        tabs.strength2.DurabilityAverage.Text = "Dura Ø: " .. formatPace(tabs.strength2.averageDurabilityPerSecond)
     end
 
     tabs.strength2.lastCalculationAt = tick()
@@ -1068,11 +1085,17 @@ task.spawn(function()
 end)
 
 function eatEgg()
-    tabs.other.character = lp.player.Character
-    tabs.other.backpack = lp.player:FindFirstChild("Backpack")
-    tabs.other.tool = (tabs.other.character and tabs.other.character:FindFirstChild("Protein Egg")) or (tabs.other.backpack and tabs.other.backpack:FindFirstChild("Protein Egg"))
-    if tabs.other.tool then
-        services.muscleEvent:FireServer("proteinEgg", tabs.other.tool)
+    local character = lp.player.Character
+    local backpack = lp.player:FindFirstChild("Backpack")
+    local tool = (character and character:FindFirstChild("Protein Egg"))
+        or (backpack and backpack:FindFirstChild("Protein Egg"))
+
+    if not tool then
+        return
+    end
+
+    for _ = 1, 10 do
+        services.muscleEvent:FireServer("proteinEgg", tool)
     end
 end
 
@@ -1236,6 +1259,14 @@ end)
 
 tabs.other:AddButton("Industrial Squat",function()
     tabs.other.tpE(Vector3.new(-5217.25049, 89.8445511, 5416.01025))
+end)
+
+tabs.other:AddButton("Overcharged Lift",function()
+    tabs.other.tpE(Vector3.new(-3023.363, 151.797, 4696.859))
+end)
+
+tabs.other:AddButton("Overcharged Squat",function()
+    tabs.other.tpE(Vector3.new(-2673.216, 151.797, 5494.047))
 end)
 
 
