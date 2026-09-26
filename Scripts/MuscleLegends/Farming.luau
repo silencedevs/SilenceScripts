@@ -1391,6 +1391,6 @@ tabs.info:AddButton("Copy Invite", function()
 end)
 
 tabs.info:AddLabel("")
-tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.1]")
+tabs.info.wLabel = tabs.info:AddLabel("Farming [V4.1.2]")
 tabs.info.wLabel.TextSize = 20
 tabs.info.wLabel.Font = Enum.Font.Arcade_
