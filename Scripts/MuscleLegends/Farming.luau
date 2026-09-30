@@ -253,6 +253,37 @@ local tabs = {
 
 tabs.other:Show()
 
+tabs.other.RedactConfigPath = "Silence/MuscleLegendsFarmingConfig.json"
+tabs.other.RedactConfig = {
+    RedactName = true,
+    RedactStats = true,
+}
+
+tabs.other.loadRedactConfig = function()
+    if type(isfile) ~= "function" or type(readfile) ~= "function" then return end
+    pcall(function()
+        if not isfile(tabs.other.RedactConfigPath) then return end
+        local savedConfig = services.httpservice:JSONDecode(readfile(tabs.other.RedactConfigPath))
+        if typeof(savedConfig) == "table" then
+            tabs.other.RedactConfig.RedactName = savedConfig.RedactName == true
+            tabs.other.RedactConfig.RedactStats = savedConfig.RedactStats == true
+        end
+    end)
+end
+
+tabs.other.saveRedactConfig = function()
+    if type(writefile) ~= "function" then return end
+    pcall(function()
+        if type(makefolder) == "function"
+            and (type(isfolder) ~= "function" or not isfolder("Silence")) then
+            pcall(makefolder, "Silence")
+        end
+        writefile(tabs.other.RedactConfigPath, services.httpservice:JSONEncode(tabs.other.RedactConfig))
+    end)
+end
+
+tabs.other.loadRedactConfig()
+
 function formatNumber(num)
     if num >= 1e18 then return string.format("%.2fQi", num/1e18) end
     if num >= 1e15 then return string.format("%.2fQa", num/1e15) end
@@ -263,7 +294,7 @@ function formatNumber(num)
     return string.format("%.0f", num)
 end
 
-tabs.other.redactStats = true
+tabs.other.redactStats = tabs.other.RedactConfig.RedactStats
 
 local function formatCurrentStat(value)
     return tabs.other.redactStats and "####" or formatNumber(value)
@@ -1422,17 +1453,21 @@ tabs.other.popupSwitchInitializing = false
 
 tabs.other.RedactNameSwitch = tabs.other:AddSwitch("Redact Name", function(state)
     privacyRedactor:SetNameEnabled(state)
+    tabs.other.RedactConfig.RedactName = state
+    tabs.other.saveRedactConfig()
 end)
-tabs.other.RedactNameSwitch:Set(true)
+tabs.other.RedactNameSwitch:Set(tabs.other.RedactConfig.RedactName)
 
 tabs.other.RedactStatsSwitch = tabs.other:AddSwitch("Redact Stats", function(state)
     tabs.other.redactStats = state
     privacyRedactor:SetStatsEnabled(state)
+    tabs.other.RedactConfig.RedactStats = state
+    tabs.other.saveRedactConfig()
     tabs.rebirths.updateStats()
     tabs.strength.updateStats()
     tabs.strength2.updateStats()
 end)
-tabs.other.RedactStatsSwitch:Set(true)
+tabs.other.RedactStatsSwitch:Set(tabs.other.RedactConfig.RedactStats)
 
 
 
