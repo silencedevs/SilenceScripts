@@ -487,7 +487,7 @@ local FooterGlow = Create("TextLabel", {
 
     local FastFarmingButton, FastFarmingGlow = createEnhancedButton({
         Font = Enum.Font.FredokaOne,
-        Text = "Fast Farming (Rep % or Reb Pets)",
+        Text = "Fast Farming (Rep Pets only!)",
         TextColor3 = Color3.fromRGB(255, 255, 255),
         TextSize = 14,
         BackgroundColor3 = DarkPurple,
