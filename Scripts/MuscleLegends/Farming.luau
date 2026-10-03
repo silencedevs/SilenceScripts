@@ -686,7 +686,7 @@ tabs.rebirths.rebirths:GetPropertyChangedSignal("Value"):Connect(function()
     tabs.rebirths.updateStats()
 end)
 
-tabs.rebirths:AddSwitch("Fast Rebirth", function(state)
+tabs.rebirths:AddSwitch("Pack Rebirth (Yes, Robux Packs)", function(state)
     tabs.rebirths.running = state
     if state then
         tabs.rebirths.hasStarted = true
