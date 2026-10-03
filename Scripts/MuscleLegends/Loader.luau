@@ -475,7 +475,7 @@ local FooterGlow = Create("TextLabel", {
 
     local MainScriptButton, MainScriptGlow = createEnhancedButton({
         Font = Enum.Font.FredokaOne,
-        Text = "Execute Main Script",
+        Text = "Main Script (All Features)",
         TextColor3 = Color3.fromRGB(255, 255, 255),
         TextSize = 14,
         BackgroundColor3 = LightPurple,
@@ -487,7 +487,7 @@ local FooterGlow = Create("TextLabel", {
 
     local FastFarmingButton, FastFarmingGlow = createEnhancedButton({
         Font = Enum.Font.FredokaOne,
-        Text = "Execute Fast Farming",
+        Text = "Fast Farming (Rep % or Reb Pets)",
         TextColor3 = Color3.fromRGB(255, 255, 255),
         TextSize = 14,
         BackgroundColor3 = DarkPurple,
