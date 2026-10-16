@@ -1,8 +1,3 @@
---[[
-    Silence - Ml Main
-    by Henrik @xyzhenrik
-]]
-
 local services = {
 	Players = game:GetService("Players"),
 	ReplicatedStorage = game:GetService("ReplicatedStorage"),
@@ -17,7 +12,19 @@ local services = {
 	StarterGui = game:GetService("StarterGui")
 }
 
-local utils = {}
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2.luau?cache=" .. tostring(os.time()), true))()
+local runtime = library.Runtime
+
+do
+	local success, executorName = pcall(function()
+		local identify = identifyexecutor
+		if type(identify) ~= "function" then identify = getexecutorname end
+		if type(identify) == "function" then return identify() end
+	end)
+	services.isSolara = success and type(executorName) == "string" and string.lower(executorName) == "solara"
+end
+
+local utils = {library = library}
 utils.runtime = {}
 
 utils.touchParts = function(part, hand, state)
@@ -92,7 +99,7 @@ function utils.deleteAds()
 		_G.ads:Disconnect()
 	end
 
-	_G.ads = game.DescendantAdded:Connect(function(descendant)
+	_G.ads = runtime:Connect(game.DescendantAdded, function(descendant)
 		if descendant.Name == "RobloxForwardPortals" then
 			descendant:Destroy()
 		end
@@ -100,7 +107,6 @@ function utils.deleteAds()
 end
 utils.deleteAds()
 
-utils.library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2.luau?cache=" .. tostring(os.time()), true))()
 
 utils.silence = utils.library:AddWindow("Silence | Main - " .. utils.greeting(), {
 	main_color = Color3.fromRGB(138, 0, 0),
@@ -108,21 +114,16 @@ utils.silence = utils.library:AddWindow("Silence | Main - " .. utils.greeting(),
 	can_resize = true,
 })
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		task.wait(60)
 		utils.silence:SetTitle("Silence | Main - " .. utils.greeting())
 	end
 end)
 
-utils.playerData.Player.Idled:Connect(function()
-	pcall(function()
-		services.VirtualUser:CaptureController()
-		services.VirtualUser:ClickButton2(Vector2.new())
-	end)
-end)
+utils.library:EnableAntiAFK()
 
-utils.playerData.Player.CharacterAdded:Connect(function(character)
+runtime:Connect(utils.playerData.Player.CharacterAdded, function(character)
 	utils.playerData.Character = character
 	utils.playerData.Humanoid = character:WaitForChild("Humanoid", 10)
 	utils.playerData.Backpack = utils.playerData.Player:WaitForChild("Backpack")
@@ -164,7 +165,7 @@ tabs.main:AddSwitch("Set Size", function(bool)
 	tabs.main.Settings.Size.Enabled = bool
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.main.Settings.Size.Enabled and utils.playerData.Character and utils.playerData.Humanoid then
 			utils.remotes.ChangeSpeedSize:InvokeServer("changeSize", tabs.main.Settings.Size.Value)
@@ -184,7 +185,7 @@ tabs.main:AddSwitch("Set Speed", function(bool)
 	tabs.main.Settings.Speed.Enabled = bool
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.main.Settings.Speed.Enabled and utils.playerData.Character and utils.playerData.Humanoid then
 			utils.remotes.ChangeSpeedSize:InvokeServer("changeSpeed", tabs.main.Settings.Speed.Value)
@@ -206,7 +207,7 @@ if utils.playerData.Camera then
 		utils.playerData.Camera.FieldOfView = bool and tabs.main.Settings.FOV.Value or 70
 	end)
 
-	task.spawn(function()
+	runtime:Spawn(function()
 		while true do
 			if tabs.main.Settings.FOV.Enabled and utils.playerData.Camera then
 				utils.playerData.Camera.FieldOfView = tabs.main.Settings.FOV.Value
@@ -250,7 +251,7 @@ tabs.main:AddSwitch("Anti Fling", function(bool)
 	if bool then tabs.main.enableAntiFling() else tabs.main.disableAntiFling() end
 end):Set(true)
 
-utils.playerData.Player.CharacterAdded:Connect(function(newChar)
+runtime:Connect(utils.playerData.Player.CharacterAdded, function(newChar)
 	newChar:WaitForChild("HumanoidRootPart", 5)
 	if tabs.main.Protection.AntiFling.Enabled then tabs.main.enableAntiFling() end
 end)
@@ -333,9 +334,9 @@ tabs.main.bindVisibilitySetting = function(setting, node, onText, button)
 		setting.OnText = onText
 		setting.Button = button
 		setting.Pending = false
-		setting.Connection = onText:GetPropertyChangedSignal("Visible"):Connect(function()
+		setting.Connection = runtime:Connect(onText:GetPropertyChangedSignal("Visible"), function()
 			setting.Pending = false
-			task.defer(tabs.main.syncVisibilitySetting, setting)
+			runtime:Defer(tabs.main.syncVisibilitySetting, setting)
 		end)
 	end
 	tabs.main.syncVisibilitySetting(setting)
@@ -347,11 +348,11 @@ for _, setting in ipairs(tabs.main.VisibilitySettings) do
 		tabs.main.syncVisibilitySetting(setting)
 	end)
 	setting.Switch:Set(false)
-	task.spawn(tabs.main.bindVisibilitySetting, setting)
+	runtime:Spawn(tabs.main.bindVisibilitySetting, setting)
 end
-utils.playerData.Player.CharacterAdded:Connect(function()
+runtime:Connect(utils.playerData.Player.CharacterAdded, function()
 	for _, setting in ipairs(tabs.main.VisibilitySettings) do
-		task.spawn(tabs.main.bindVisibilitySetting, setting)
+		runtime:Spawn(tabs.main.bindVisibilitySetting, setting)
 	end
 end)
 
@@ -411,8 +412,8 @@ tabs.main.RedactStatsSwitch = tabs.main:AddSwitch("Hide Stats", function(state)
 end)
 tabs.main.RedactStatsSwitch:Set(tabs.main.RedactConfig.RedactStats)
 
-utils.playerData.Player.CharacterAdded:Connect(function(character, head)
-	task.defer(tabs.main.applyStatsVisibility)
+runtime:Connect(utils.playerData.Player.CharacterAdded, function(character, head)
+	runtime:Defer(tabs.main.applyStatsVisibility)
 	if character.Name ~= "HenneZocktTV" then return end
 	head = character:WaitForChild("Head", 10)
 	if head and head:WaitForChild("nameGui", 10) and utils.playerData.Player.Character == character then
@@ -420,21 +421,19 @@ utils.playerData.Player.CharacterAdded:Connect(function(character, head)
 	end
 end)
 
-utils.playerData.Player.CharacterAdded:Connect(function(newChar)
+runtime:Connect(utils.playerData.Player.CharacterAdded, function(newChar)
 	if tabs.main.Protection.PositionLock.Enabled and newChar:WaitForChild("HumanoidRootPart", 5) then
 		tabs.main.Protection.PositionLock.Position = newChar.HumanoidRootPart.Position
 		tabs.main.lockPosition()
 	end
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.main.Protection.PositionLock.Enabled then tabs.main.lockPosition() end
 		task.wait(0.1)
 	end
 end)
-
-
 
 tabs.main.WaterParts = {
 	Parts = {},
@@ -443,7 +442,7 @@ tabs.main.WaterParts = {
 	StartPosition = Vector3.new(-2, -9.5, -2)
 }
 
-task.spawn(function()
+runtime:Spawn(function()
 	for x = 0, math.ceil(tabs.main.WaterParts.TotalDistance / tabs.main.WaterParts.PartSize) - 1 do
 		for z = 0, math.ceil(tabs.main.WaterParts.TotalDistance / tabs.main.WaterParts.PartSize) - 1 do
 			for i, offset in ipairs({
@@ -478,7 +477,7 @@ tabs.main:AddLabel("Other:")
 tabs.main:AddSwitch("Infinite Jump", function(bool)
 	tabs.main.InfiniteJump = bool
 end)
-services.UserInputService.JumpRequest:Connect(function(character, humanoid)
+runtime:Connect(services.UserInputService.JumpRequest, function(character, humanoid)
 	character = utils.playerData.Player.Character
 	humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if tabs.main.InfiniteJump and humanoid and humanoid.Health > 0 then
@@ -513,7 +512,7 @@ tabs.main:AddSwitch("Spin Fortune Wheel", function(state)
 
 	if not state then return end
 
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while tabs.main.FortuneWheelData.Running and tabs.main.FortuneWheelData.Generation == generation do
 			tabs.main.spinFortuneWheel()
 			task.wait(1)
@@ -526,9 +525,6 @@ tabs.main.TimeDropdown = tabs.main:AddDropdown("Change Time", function(selection
 end)
 tabs.main.TimeDropdown:Add("Night")
 tabs.main.TimeDropdown:Add("Day")
-
--- Kill Tab (i never know where it stars)
-
 
 tabs.killing.getTool = function()
 	if not services.Players.LocalPlayer.Character then return end
@@ -801,7 +797,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 
 			tabs.killing.runtime.stopBlockedAnimations(tabs.killing.runtime.char_627)
 			if _G.AnimBlockConnection then _G.AnimBlockConnection:Disconnect() end
-			_G.AnimBlockConnection = tabs.killing.runtime.humanoid_628.AnimationPlayed:Connect(function(track)
+			_G.AnimBlockConnection = runtime:Connect(tabs.killing.runtime.humanoid_628.AnimationPlayed, function(track)
 				if tabs.killing.runtime.shouldBlockAnimation(track)
 					or (tabs.killing.runtime.hasAttackToolEquipped(tabs.killing.runtime.char_627) and not tabs.killing.runtime.isMovementAnimation(track, tabs.killing.runtime.char_627)) then
 					track:Stop(0)
@@ -815,15 +811,15 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 					tool:SetAttribute("ActivatedOverride", true)
 
 					_G.ToolConnections = _G.ToolConnections or {}
-					_G.ToolConnections[tool] = tool.Activated:Connect(function()
+					_G.ToolConnections[tool] = runtime:Connect(tool.Activated, function()
 						task.wait(0.05)
 						tabs.killing.runtime.stopBlockedAnimations(services.Players.LocalPlayer.Character)
 					end)
 
 					_G.ToolEquipConnections = _G.ToolEquipConnections or {}
-					_G.ToolEquipConnections[tool] = tool.Equipped:Connect(function()
+					_G.ToolEquipConnections[tool] = runtime:Connect(tool.Equipped, function()
 						for _, delayTime in ipairs({0, 0.03, 0.08, 0.15, 0.25}) do
-							task.delay(delayTime, function()
+							runtime:Delay(delayTime, function()
 								tabs.killing.runtime.stopEquipAnimations(services.Players.LocalPlayer.Character)
 							end)
 						end
@@ -850,7 +846,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 				end
 			end
 
-			_G.BackpackAddedConnection = services.Players.LocalPlayer.Backpack.ChildAdded:Connect(function(child)
+			_G.BackpackAddedConnection = runtime:Connect(services.Players.LocalPlayer.Backpack.ChildAdded, function(child)
 				if child:IsA("Tool") then
 					task.wait(0.1)
 					tabs.killing.runtime.processTool(child)
@@ -858,7 +854,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 			end)
 
 			if tabs.killing.runtime.char_673 then
-				_G.CharacterToolAddedConnection = tabs.killing.runtime.char_673.ChildAdded:Connect(function(child)
+				_G.CharacterToolAddedConnection = runtime:Connect(tabs.killing.runtime.char_673.ChildAdded, function(child)
 					if child:IsA("Tool") then
 						task.wait(0.1)
 						tabs.killing.runtime.processTool(child)
@@ -867,7 +863,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 			end
 		end
 
-		_G.AnimMonitorConnection = services.RunService.RenderStepped:Connect(function()
+		_G.AnimMonitorConnection = runtime:Connect(services.RunService.RenderStepped, function()
 			tabs.killing.runtime.character_700 = services.Players.LocalPlayer.Character
 			if tabs.killing.runtime.hasAttackToolEquipped(tabs.killing.runtime.character_700) then
 				tabs.killing.runtime.stopEquipAnimations(tabs.killing.runtime.character_700)
@@ -876,7 +872,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 			end
 		end)
 
-		_G.CharacterAddedConnection = services.Players.LocalPlayer.CharacterAdded:Connect(function(newChar)
+		_G.CharacterAddedConnection = runtime:Connect(services.Players.LocalPlayer.CharacterAdded, function(newChar)
 			task.wait(1)
 			tabs.killing.runtime.setupAnimationBlocking()
 			tabs.killing.runtime.overrideToolActivation()
@@ -885,7 +881,7 @@ tabs.killing:AddSwitch("Remove Attack Animations", function(bool)
 				_G.CharacterToolAddedConnection:Disconnect()
 			end
 
-			_G.CharacterToolAddedConnection = newChar.ChildAdded:Connect(function(child)
+			_G.CharacterToolAddedConnection = runtime:Connect(newChar.ChildAdded, function(child)
 				if child:IsA("Tool") then
 					task.wait(0.1)
 					tabs.killing.runtime.processTool(child)
@@ -1019,7 +1015,7 @@ tabs.killing:AddSwitch("Kill Everyone", function(bool)
 	tabs.killing.runtime.generation_831 = _G.killAllGeneration
 	if not bool then return end
 
-	task.spawn(function(generation, foundTarget)
+	runtime:Spawn(function(generation, foundTarget)
 		while _G.killAll and _G.killAllGeneration == generation do
 			foundTarget = false
 			for _, player in ipairs(services.Players:GetPlayers()) do
@@ -1055,7 +1051,7 @@ tabs.killing:AddSwitch("Whitelist Friends", function(bool)
 			end
 		end
 
-		_G.friendWhitelistConnection = services.Players.PlayerAdded:Connect(function(player)
+		_G.friendWhitelistConnection = runtime:Connect(services.Players.PlayerAdded, function(player)
 			if _G.whitelistFriends and player:IsFriendsWith(services.Players.LocalPlayer.UserId) then
 				if not tabs.killing.isWhitelisted(player) then
 					table.insert(_G.whitelistedPlayers, player.Name)
@@ -1063,7 +1059,7 @@ tabs.killing:AddSwitch("Whitelist Friends", function(bool)
 			end
 		end)
 
-		_G.friendCheckLoop = task.spawn(function()
+		_G.friendCheckLoop = runtime:Spawn(function()
 			while _G.whitelistFriends do
 				task.wait(3)
 				for _, player in pairs(services.Players:GetPlayers()) do
@@ -1108,7 +1104,7 @@ tabs.killing.restartKarmaWorker = function()
 	tabs.killing.runtime.generation_921 = tabs.killing.KarmaData.Generation
 	if not tabs.killing.KarmaData.FarmEvil and not tabs.killing.KarmaData.FarmGood then return end
 
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while (tabs.killing.KarmaData.FarmEvil or tabs.killing.KarmaData.FarmGood) and tabs.killing.KarmaData.Generation == generation do
 			tabs.killing.runtime.foundTarget_926 = false
 			for _, player in ipairs(services.Players:GetPlayers()) do
@@ -1144,8 +1140,6 @@ tabs.killing:AddSwitch("Farm Good Karma", function(state)
 	tabs.killing.KarmaData.FarmGood = state
 	tabs.killing.restartKarmaWorker()
 end)
-
-
 
 tabs.killing:AddLabel("Target Killing:")
 
@@ -1187,7 +1181,7 @@ for _, player in ipairs(services.Players:GetPlayers()) do
 	end
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
 	if player ~= services.Players.LocalPlayer then
 		tabs.killing.WhitelistDisplayNames[player.Name] = player.DisplayName
 		tabs.killing.WhitelistDropdown:Add(player.DisplayName .. " | " .. player.Name)
@@ -1196,7 +1190,7 @@ services.Players.PlayerAdded:Connect(function(player)
 	end
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
 	tabs.killing.WhitelistDropdown:Remove(player.DisplayName .. " | " .. player.Name)
 	tabs.killing.BlacklistDropdown:Remove(player.DisplayName .. " | " .. player.Name)
 end)
@@ -1218,7 +1212,7 @@ tabs.killing.setTargetKillAntiGravity = function(enabled)
 			tabs.killing.TargetKillGravityState.OriginalGravity = services.Workspace.Gravity
 			services.Workspace.Gravity = 0
 
-			tabs.killing.TargetKillGravityState.Connection = services.RunService.Heartbeat:Connect(function()
+			tabs.killing.TargetKillGravityState.Connection = runtime:Connect(services.RunService.Heartbeat, function()
 				services.Workspace.Gravity = 0
 				tabs.killing.runtime.currentCharacter = services.Players.LocalPlayer.Character
 				tabs.killing.runtime.currentRoot = tabs.killing.runtime.currentCharacter and tabs.killing.runtime.currentCharacter:FindFirstChild("HumanoidRootPart")
@@ -1259,7 +1253,7 @@ tabs.killing:AddSwitch("Kill List", function(bool)
 	end
 	tabs.killing.setTargetKillAntiGravity(true)
 
-	task.spawn(function(generation, target)
+	runtime:Spawn(function(generation, target)
 		while _G.killBlacklistedOnly and _G.killListGeneration == generation do
 			target = nil
 			for _, player in ipairs(services.Players:GetPlayers()) do
@@ -1339,7 +1333,7 @@ tabs.killing.startCameraMonitor = function()
 
 	tabs.killing.SpectateData.CameraMonitorLoop = true
 
-	task.spawn(function()
+	runtime:Spawn(function()
 		while tabs.killing.SpectateData.CameraMonitorLoop do
 			task.wait(0.2)
 			if tabs.killing.SpectateData.Spectating and tabs.killing.SpectateData.SelectedPlayer then
@@ -1410,7 +1404,7 @@ tabs.killing.updateSpectateTarget = function(player)
 		tabs.killing.runtime.setCamera(player.Character)
 	end
 
-	tabs.killing.SpectateData.CurrentTargetConnection = player.CharacterAdded:Connect(function(newChar)
+	tabs.killing.SpectateData.CurrentTargetConnection = runtime:Connect(player.CharacterAdded, function(newChar)
 		if tabs.killing.SpectateData.Spectating and tabs.killing.SpectateData.SelectedPlayerUserId == player.UserId then
 			tabs.killing.runtime.setCamera(newChar)
 		end
@@ -1464,7 +1458,7 @@ for _, player in ipairs(tabs.killing.getPlayers()) do
 	tabs.killing.SpectateDropdown:Add(player.DisplayName .. " | " .. player.Name)
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
 	tabs.killing.SpectateDropdown:Add(player.DisplayName .. " | " .. player.Name)
 	if tabs.killing.SpectateState.IsSpectating and tabs.killing.SpectateState.SavedUserId == player.UserId then
 		tabs.killing.SpectateData.Spectating = true
@@ -1474,7 +1468,7 @@ services.Players.PlayerAdded:Connect(function(player)
 	end
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
 	tabs.killing.SpectateDropdown:Remove(player.DisplayName .. " | " .. player.Name)
 	if player.UserId == tabs.killing.SpectateData.SelectedPlayerUserId then
 		if tabs.killing.SpectateData.Spectating then
@@ -1495,7 +1489,7 @@ if tabs.killing.SpectateData.LocalPlayerRespawnConnection then
 	tabs.killing.SpectateData.LocalPlayerRespawnConnection:Disconnect()
 end
 
-tabs.killing.SpectateData.LocalPlayerRespawnConnection = services.Players.LocalPlayer.CharacterAdded:Connect(function(char)
+tabs.killing.SpectateData.LocalPlayerRespawnConnection = runtime:Connect(services.Players.LocalPlayer.CharacterAdded, function(char)
 	tabs.killing.runtime.humanoid_1288 = char:WaitForChild("Humanoid", 3)
 	if tabs.killing.runtime.humanoid_1288 then
 		utils.playerData.Humanoid = tabs.killing.runtime.humanoid_1288
@@ -1637,7 +1631,7 @@ tabs.killing:AddSwitch("Toggle Ring", function(bool)
 	tabs.killing.runtime.discardCharacter_initialRoot, tabs.killing.runtime.discardHumanoid_initialRoot, tabs.killing.runtime.initialRoot = tabs.killing.getLocalCombatCharacter()
 	if tabs.killing.runtime.initialRoot then tabs.killing.KillAura.CenterCFrame = tabs.killing.runtime.initialRoot.CFrame end
 
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while _G.deathRingEnabled and tabs.killing.KillAura.Generation == generation do
 			tabs.killing.runtime.discardCharacter_localRoot_1430, tabs.killing.runtime.discardHumanoid_localRoot_1430, tabs.killing.runtime.localRoot_1430 = tabs.killing.getLocalCombatCharacter()
 			if tabs.killing.runtime.localRoot_1430 and not tabs.killing.KillAura.Frozen then
@@ -1648,7 +1642,7 @@ tabs.killing:AddSwitch("Toggle Ring", function(bool)
 		end
 	end, tabs.killing.KillAura.Generation)
 
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while _G.deathRingEnabled and tabs.killing.KillAura.Generation == generation do
 			if tabs.killing.KillAura.Frozen or not tabs.killing.KillAura.CenterCFrame then
 				task.wait(0.05)
@@ -1742,7 +1736,7 @@ tabs.killing:AddButton("Clear Killlist", function()
 	tabs.killing.RemoveKilllistDropdown:Clear()
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		local displayedWhitelist = {}
 		for _, username in ipairs(_G.whitelistedPlayers) do
@@ -1790,11 +1784,11 @@ for _, player in ipairs(services.Players:GetPlayers()) do
 	tabs.specs.PlayerDropdown:Add(player.DisplayName .. " | " .. player.Name)
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
 	tabs.specs.PlayerDropdown:Add(player.DisplayName .. " | " .. player.Name)
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
 	tabs.specs.PlayerDropdown:Remove(player.DisplayName .. " | " .. player.Name)
 	if tabs.specs.Data.PlayerToInspect == player then tabs.specs.Data.PlayerToInspect = nil end
 end)
@@ -1822,7 +1816,7 @@ tabs.specs.updateStatLabels = function(targetPlayer)
 	end
 end
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.specs.Data.PlayerToInspect then tabs.specs.updateStatLabels(tabs.specs.Data.PlayerToInspect) end
 		task.wait(0.1)
@@ -1919,13 +1913,12 @@ tabs.specs.updateAdvancedStats = function(targetPlayer)
 	tabs.specs.AdvancedStats.HitsToKillLabel.Text = string.format("👊 Hits to Kill: %s", tostring(tabs.specs.StatsCache.hitsToKill))
 end
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		tabs.specs.updateAdvancedStats(tabs.specs.Data.PlayerToInspect)
 		task.wait(0.1)
 	end
 end)
-
 
 tabs.farming:AddLabel("Rebirths:")
 
@@ -1938,7 +1931,6 @@ tabs.farming.RebirthData = {
 	Generation = 0
 }
 
-
 tabs.farming:AddTextBox("Set Rebirth Target (Required):", function(text)
 	if tonumber(text) and tonumber(text) >= 0 then tabs.farming.RebirthData.TargetRebirths = tonumber(text) end
 end)
@@ -1947,7 +1939,7 @@ tabs.farming.RebirthData.Switch = tabs.farming:AddSwitch("Auto Rebirth", functio
 	tabs.farming.RebirthData.Generation += 1
 	if enabled and tabs.farming.RebirthData.TargetRebirths > 0 and tabs.farming.RebirthData.Rebirths.Value < tabs.farming.RebirthData.TargetRebirths then
 		tabs.farming.RebirthData.IsAutoRebirthing = true
-		task.spawn(function(generation)
+		runtime:Spawn(function(generation)
 			while tabs.farming.RebirthData.IsAutoRebirthing
 				and tabs.farming.RebirthData.Generation == generation
 				and tabs.farming.RebirthData.Rebirths.Value < tabs.farming.RebirthData.TargetRebirths do
@@ -1962,7 +1954,7 @@ tabs.farming.RebirthData.Switch = tabs.farming:AddSwitch("Auto Rebirth", functio
 	end
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		tabs.farming.RebirthData.Label.Text = "Rebirths: " .. utils.formatWithCommas(tabs.farming.RebirthData.Rebirths.Value)
 		tabs.farming.RebirthData.TargetLabel.Text = "Target Rebirths: " .. utils.formatWithCommas(tabs.farming.RebirthData.TargetRebirths)
@@ -1975,7 +1967,7 @@ tabs.farming.SizeData = {Active = false}
 tabs.farming.SizeSwitch = tabs.farming:AddSwitch("Auto Size 1", function(bool) tabs.farming.SizeData.Active = bool end)
 tabs.farming.SizeSwitch:Set(false)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.farming.SizeData.Active and utils.playerData.Character and utils.playerData.Humanoid then
 			utils.remotes.ChangeSpeedSize:InvokeServer("changeSize", 1)
@@ -1990,7 +1982,7 @@ tabs.farming.KingSwitch = tabs.farming:AddSwitch("Auto King", function(enabled)
 	tabs.farming.KingData.TeleportActive = enabled
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.farming.KingData.TeleportActive then
 			if not utils.playerData.Character or not utils.playerData.Character:FindFirstChildOfClass("Humanoid") then
@@ -2108,7 +2100,7 @@ tabs.farming.ToolExerciseSwitch = tabs.farming:AddSwitch("Start exercising", fun
 	if enabled then
 		if tabs.farming.SquatExerciseSwitch and tabs.farming.MachineExerciseData.Squat.Running then tabs.farming.SquatExerciseSwitch:Set(false) end
 		if tabs.farming.LiftExerciseSwitch and tabs.farming.MachineExerciseData.Lift.Running then tabs.farming.LiftExerciseSwitch:Set(false) end
-		task.spawn(function(generation, character, humanoid, tool)
+		runtime:Spawn(function(generation, character, humanoid, tool)
 			while tabs.farming.ExerciseData.AutoFarm and tabs.farming.ExerciseData.Generation == generation do
 				character = utils.playerData.Player.Character
 				humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -2160,7 +2152,7 @@ end
 
 tabs.farming.startMachineExercise = function(machineData)
 	machineData.Generation += 1
-	task.spawn(function(generation, lastCharacter, character, humanoid, humanoidState, jumpedOff)
+	runtime:Spawn(function(generation, lastCharacter, character, humanoid, humanoidState, jumpedOff)
 		lastCharacter = utils.playerData.Player.Character
 		while machineData.Running and machineData.Generation == generation do
 			character = utils.playerData.Player.Character
@@ -2226,7 +2218,7 @@ tabs.farming.setMachineExerciseState = function(machineData, otherMachineData, s
 		end
 	end
 	tabs.farming.startMachineExercise(machineData)
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while machineData.Running and machineData.Generation == generation do
 			if machineData.ActiveMachine then utils.playerData.Player.muscleEvent:FireServer("rep") end
 			task.wait(0.1)
@@ -2248,7 +2240,7 @@ tabs.farming.AutoRepRunning = false
 tabs.farming.AutoRepSwitch = tabs.farming:AddSwitch("Auto Rep", function(state)
 	tabs.farming.AutoRepRunning = state
 	if not state then return end
-	task.spawn(function()
+	runtime:Spawn(function()
 		while tabs.farming.AutoRepRunning do
 			utils.playerData.Player.muscleEvent:FireServer("rep")
 			task.wait(0.1)
@@ -2272,7 +2264,7 @@ for rockName in pairs(tabs.farming.RockData.Data) do tabs.farming.RockDropdown:A
 tabs.farming.RockSwitch = tabs.farming:AddSwitch("Auto Rock", function(enabled)
 	tabs.farming.RockFarmRunning = enabled
 	if enabled and tabs.farming.RockData.SelectedRock then
-		task.spawn(function()
+		runtime:Spawn(function()
 			while tabs.farming.RockFarmRunning do
 				task.wait(0.12)
 				if tabs.farming.RockFarmRunning and utils.playerData.Player.Character
@@ -2313,7 +2305,7 @@ for _, config in ipairs(tabs.farming.Configs) do
 			if utils.playerData.Player.Backpack:FindFirstChild(config.tool) and not utils.playerData.Player.Character:FindFirstChild(config.tool) then
 				utils.playerData.Player.Character.Humanoid:EquipTool(utils.playerData.Player.Backpack[config.tool])
 			end
-			task.spawn(function()
+			runtime:Spawn(function()
 				while tabs.farming.ActiveConfigs[config.name] do
 					utils.playerData.Player.muscleEvent:FireServer("rep")
 					if tabs.farming.MachinesFolder:FindFirstChild(config.rock) and utils.playerData.Player.Character:FindFirstChild("LeftHand") then
@@ -2405,6 +2397,7 @@ tabs.boss.addBossChoice = function(modelName, displayName)
 end
 
 tabs.boss.runtime.configSuccess, tabs.boss.Data.BossConfig = pcall(function()
+	if services.isSolara then return nil end
 	return require(services.ReplicatedStorage:WaitForChild("shared"):WaitForChild("config"):WaitForChild("BossEventConfig"))
 end)
 if tabs.boss.runtime.configSuccess and tabs.boss.Data.BossConfig and tabs.boss.Data.BossConfig.RARITIES then
@@ -2657,7 +2650,7 @@ tabs.boss.resumeTraining = function(snapshot)
 	for _, config in ipairs(tabs.farming.Configs) do
 		if snapshot.Configs[config.name] and config.Switch then config.Switch:Set(true) end
 	end
-	task.spawn(function(generation)
+	runtime:Spawn(function(generation)
 		while tabs.boss.Data.TrainingResumeGeneration == generation do
 			if tabs.boss.isTrainingReady(snapshot, false) then
 				tabs.boss.Data.TrainingRestore = nil
@@ -2855,7 +2848,7 @@ tabs.boss.ContinueSwitch = tabs.boss:AddSwitch("Continue Farming after Boss Kill
 end)
 tabs.boss.ContinueSwitch:Set(true)
 
-task.spawn(function(model, health, maxHealth, hitbox, currentHealth, currentMaxHealth, nextTime)
+runtime:Spawn(function(model, health, maxHealth, hitbox, currentHealth, currentMaxHealth, nextTime)
 	while true do
 		model, health, maxHealth, hitbox = tabs.boss.findActiveBoss()
 		if model then
@@ -2891,7 +2884,7 @@ tabs.boss.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Boss", function(state)
 		return
 	end
 
-	task.spawn(function(generation, wasFighting, model, health, maxHealth, hitbox, selected)
+	runtime:Spawn(function(generation, wasFighting, model, health, maxHealth, hitbox, selected)
 		while tabs.boss.Data.Running and tabs.boss.Data.Generation == generation do
 			pcall(function()
 				model, health, maxHealth, hitbox = tabs.boss.findActiveBoss()
@@ -3048,7 +3041,7 @@ tabs.boss.Halloween.findActiveBoss = function(selectedOnly, model, hitbox, candi
 	return model, nil, nil, hitbox
 end
 
-task.spawn(function(model)
+runtime:Spawn(function(model)
 	while true do
 		model = tabs.boss.Halloween.Data.Target
 		if not model or not model.Parent or tabs.boss.Halloween.getBossHealth(nil, model) <= 0 then
@@ -3081,7 +3074,7 @@ tabs.boss.Halloween.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Halloween Bo
 		return
 	end
 
-	task.spawn(function(generation, wasFighting, model, health, maxHealth, hitbox)
+	runtime:Spawn(function(generation, wasFighting, model, health, maxHealth, hitbox)
 		while tabs.boss.Halloween.Data.Running and tabs.boss.Halloween.Data.Generation == generation do
 			pcall(function()
 				model, health, maxHealth, hitbox = tabs.boss.Halloween.findActiveBoss(true)
@@ -3172,13 +3165,13 @@ end, {clear = false})
 tabs.inventory:AddSwitch("Buy Pet", function(bool)
 	_G.AutoHatchPet = bool
 	if bool then
-		task.spawn(function()
+		runtime:Spawn(function()
 			while _G.AutoHatchPet do
 				for _, petName in ipairs(tabs.inventory.PetShopData.SelectedList) do
 					tabs.inventory.runtime.selectedPet = tabs.inventory.PetShopFolder:FindFirstChild(petName)
 					if tabs.inventory.runtime.selectedPet then
 						for _ = 1, tabs.inventory.PetShopData.BuyAmount do
-							task.spawn(function(selectedPet)
+							runtime:Spawn(function(selectedPet)
 								pcall(function() tabs.inventory.PetShopRemote:InvokeServer(selectedPet) end)
 							end, tabs.inventory.runtime.selectedPet)
 						end
@@ -3205,13 +3198,13 @@ end, {clear = false})
 tabs.inventory:AddSwitch("Buy Aura", function(bool)
 	_G.AutoHatchAura = bool
 	if bool then
-		task.spawn(function()
+		runtime:Spawn(function()
 			while _G.AutoHatchAura do
 				for _, auraName in ipairs(tabs.inventory.AuraData.SelectedList) do
 					tabs.inventory.runtime.selectedAura = tabs.inventory.PetShopFolder:FindFirstChild(auraName)
 					if tabs.inventory.runtime.selectedAura then
 						for _ = 1, tabs.inventory.AuraData.BuyAmount do
-							task.spawn(function(selectedAura)
+							runtime:Spawn(function(selectedAura)
 								pcall(function() tabs.inventory.PetShopRemote:InvokeServer(selectedAura) end)
 							end, tabs.inventory.runtime.selectedAura)
 						end
@@ -3243,7 +3236,7 @@ tabs.inventory:AddSwitch("Auto Evolve", function(state)
     tabs.inventory.AutoEvolveRunning = state
     if not state then return end
 
-    task.spawn(function()
+    runtime:Spawn(function()
         while tabs.inventory.AutoEvolveRunning do
 			for _, petName in ipairs(tabs.inventory.EvolveData.SelectedList) do
 				for _ = 1, tabs.inventory.EvolveData.Amount do
@@ -3254,8 +3247,6 @@ tabs.inventory:AddSwitch("Auto Evolve", function(state)
         end
     end)
 end)
-
-
 
 tabs.inventory:AddLabel("Auto Trading:")
 
@@ -3283,13 +3274,13 @@ for _, player in ipairs(services.Players:GetPlayers()) do
     end
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
     if player ~= services.Players.LocalPlayer then
         tabs.inventory.TradePlayerDropdown:Add(player.DisplayName .. " | " .. player.Name)
     end
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
     tabs.inventory.TradePlayerDropdown:Remove(player.DisplayName .. " | " .. player.Name)
     if tabs.inventory.TradeData.SelectedPlayers[player.Name] then
 		utils.toggleSelection(tabs.inventory.TradeData.SelectedPlayers, tabs.inventory.TradeData.SelectedPlayerList, player.Name, tabs.inventory.TradePlayerLabel, "Selected Players: ")
@@ -3302,8 +3293,6 @@ tabs.inventory.TradePetDropdown = tabs.inventory:AddDropdown("Choose Pets", func
 end)
 for _, petName in ipairs(tabs.inventory.PetShopData.PetList) do tabs.inventory.TradePetDropdown:Add(petName) end
 
-
-
 tabs.inventory.AutoTradeRunning = false
 
 tabs.inventory:AddSwitch("Auto Trade", function(state)
@@ -3311,7 +3300,7 @@ tabs.inventory:AddSwitch("Auto Trade", function(state)
 	tabs.inventory.TradeData.Generation += 1
     if not state then return end
 
-    task.spawn(function(generation)
+    runtime:Spawn(function(generation)
         while tabs.inventory.AutoTradeRunning and tabs.inventory.TradeData.Generation == generation do
             if #tabs.inventory.TradeData.SelectedPlayerList > 0 and #tabs.inventory.TradeData.SelectedPetList > 0 then
 				for _, username in ipairs(tabs.inventory.TradeData.SelectedPlayerList) do
@@ -3362,15 +3351,11 @@ tabs.inventory:AddSwitch("Auto Trade", function(state)
     end, tabs.inventory.TradeData.Generation)
 end)
 
-
-
-
-
 tabs.boosts:AddLabel("Boost Eater:")
 
 tabs.boosts.EggEaterData = {Running = false}
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.boosts.EggEaterData.Running then
 			tabs.boosts.runtime.tool_2122 = (utils.playerData.Player.Character and utils.playerData.Player.Character:FindFirstChild("Protein Egg")) or utils.playerData.Player.Backpack:FindFirstChild("Protein Egg")
@@ -3389,7 +3374,7 @@ tabs.boosts.BoostData = {
 	Running = false
 }
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		if tabs.boosts.BoostData.Running then
 			for _, itemName in ipairs(tabs.boosts.BoostData.ItemList) do
@@ -3423,13 +3408,13 @@ for _, player in ipairs(services.Players:GetPlayers()) do
     end
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
     if player ~= services.Players.LocalPlayer then
         tabs.boosts.EggPlayerDropdown:Add(player.DisplayName .. " | " .. player.Name)
     end
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
     tabs.boosts.EggPlayerDropdown:Remove(player.DisplayName .. " | " .. player.Name)
     if tabs.boosts.EggGifterData.SelectedPlayer == player then tabs.boosts.EggGifterData.SelectedPlayer = nil end
 end)
@@ -3448,7 +3433,7 @@ tabs.boosts:AddButton("Start Gifting", function()
 
 	if not tabs.boosts.EggGifterData.SelectedPlayer or tabs.boosts.runtime.amount_2369 == 0 then return end
 
-	task.spawn(function()
+	runtime:Spawn(function()
 		for _ = 1, tabs.boosts.runtime.amount_2369 do
 			tabs.boosts.runtime.egg = services.Players.LocalPlayer.consumablesFolder:FindFirstChild("Protein Egg")
 			if not tabs.boosts.runtime.egg then break end
@@ -3476,13 +3461,13 @@ for _, player in ipairs(services.Players:GetPlayers()) do
 	end
 end
 
-services.Players.PlayerAdded:Connect(function(player)
+runtime:Connect(services.Players.PlayerAdded, function(player)
 	if player ~= services.Players.LocalPlayer then
 		tabs.boosts.ShakePlayerDropdown:Add(player.DisplayName .. " | " .. player.Name)
 	end
 end)
 
-services.Players.PlayerRemoving:Connect(function(player)
+runtime:Connect(services.Players.PlayerRemoving, function(player)
 	tabs.boosts.ShakePlayerDropdown:Remove(player.DisplayName .. " | " .. player.Name)
 	if tabs.boosts.ShakeGifterData.SelectedPlayer == player then tabs.boosts.ShakeGifterData.SelectedPlayer = nil end
 end)
@@ -3501,7 +3486,7 @@ tabs.boosts:AddButton("Start Gifting", function()
 
 	if not tabs.boosts.ShakeGifterData.SelectedPlayer or tabs.boosts.runtime.amount_2422 == 0 then return end
 
-	task.spawn(function()
+	runtime:Spawn(function()
 		for _ = 1, tabs.boosts.runtime.amount_2422 do
 			tabs.boosts.runtime.shake = services.Players.LocalPlayer.consumablesFolder:FindFirstChild("Tropical Shake")
 			if not tabs.boosts.runtime.shake then break end
@@ -3514,7 +3499,7 @@ tabs.boosts:AddButton("Start Gifting", function()
 	end)
 end)
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		tabs.boosts.runtime.proteinEggCount = 0
 		tabs.boosts.runtime.tropicalShakeCount = 0
@@ -3582,7 +3567,7 @@ tabs.stats.Data = {
 
 tabs.stats:AddLabel("Stats:")
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		tabs.stats.runtime.elapsedTime = tick() - tabs.stats.Data.StartTime
 		tabs.stats.runtime.days = math.floor(tabs.stats.runtime.elapsedTime / (24 * 3600))
@@ -3610,7 +3595,7 @@ for _, info in ipairs(tabs.stats.Data.Stats) do
 	tabs.stats.Data.StatLabels[info.name] = tabs.stats:AddLabel("")
 end
 
-task.spawn(function()
+runtime:Spawn(function()
 	while true do
 		for _, info in ipairs(tabs.stats.Data.Stats) do
 			tabs.stats.runtime.currentValue = info.stat.Value
