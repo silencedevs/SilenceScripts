@@ -155,7 +155,7 @@ local function formatCurrentStat(value)
     return tabs.other.redactStats and "####" or formatNumber(value)
 end
 
-function formatPace(ratePerSecond)
+function formatRate(ratePerSecond)
     return formatNumber(ratePerSecond) .. "/s | "
         .. formatNumber(ratePerSecond * 60) .. "/min | "
         .. formatNumber(ratePerSecond * 3600) .. "/h | "
@@ -251,36 +251,22 @@ local MAX_PET_SLOTS = 12
 local TARGET_REP_SPEED = 100
 
 local function applyPetLoadout(selected, isCurrent)
-    local wanted, equipped = {}, {}
-    for _, pet in ipairs(selected) do wanted[pet] = true end
-    local equippedFolder = lp.player:FindFirstChild("equippedPets")
-    if equippedFolder then
-        for _, value in ipairs(equippedFolder:GetChildren()) do
-            if value:IsA("ObjectValue") and value.Value then equipped[value.Value] = true end
-        end
-    else
-        for _, folder in ipairs(lp.player.petsFolder:GetChildren()) do
-            if folder:IsA("Folder") then
-                for _, pet in ipairs(folder:GetChildren()) do equipped[pet] = true end
+    local remote = services.replicatedstorage.rEvents.equipPetEvent
+    for _, folder in ipairs(lp.player.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in ipairs(folder:GetChildren()) do
+                if isCurrent and not isCurrent() then return false end
+                remote:FireServer("unequipPet", pet)
             end
         end
     end
-    local removed = false
-    for pet in pairs(equipped) do
-        if isCurrent and not isCurrent() then return end
-        if not wanted[pet] or not equippedFolder then
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
-            equipped[pet] = nil
-            removed = true
-        end
-    end
-    if removed then task.wait(0.1) end
+    task.wait(0.1)
     for _, pet in ipairs(selected) do
-        if isCurrent and not isCurrent() then return end
-        if not equipped[pet] then
-            services.replicatedstorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
-        end
+        if isCurrent and not isCurrent() then return false end
+        remote:FireServer("equipPet", pet)
     end
+    task.wait(0.1)
+    return not isCurrent or isCurrent()
 end
 
 local function sendTrainingReps(state, rate, maxBurst, canSend)
@@ -297,9 +283,26 @@ local function sendTrainingReps(state, rate, maxBurst, canSend)
     return sent
 end
 
+local function getElapsed(tab)
+    return tab.totalElapsed + (tab.timerStarted and os.clock() - tab.startedAt or 0)
+end
+
+local function setTimerRunning(tab, enabled)
+    tab.totalElapsed = getElapsed(tab)
+    tab.startedAt = os.clock()
+    tab.timerStarted = enabled
+end
+
+local function recordStatGain(tab, key, value)
+    local previous = tab.statSamples[key]
+    tab.statSamples[key] = value
+    if tab.running and tab.timerStarted and previous then
+        tab.statGains[key] = tab.statGains[key] + math.max(0, value - previous)
+    end
+end
+
 local function updateRuntimeLabel(tab)
-    local elapsed = tab.totalElapsed
-    if tab.running and tab.timerStarted then elapsed = elapsed + tick() - tab.startedAt end
+    local elapsed = getElapsed(tab)
     tab.Runtime.Text = string.format("Runtime: %dd %dh %dm %ds",
         math.floor(elapsed / 86400), math.floor(elapsed % 86400 / 3600),
         math.floor(elapsed % 3600 / 60), math.floor(elapsed % 60))
@@ -422,12 +425,14 @@ tabs.rebirths.workerActive = false
 tabs.rebirths.startedAt = 0
 tabs.rebirths.timerStarted = false
 tabs.rebirths.hasStarted = false
+tabs.rebirths.baselineReady = false
+tabs.rebirths.measuredCycles = 0
+tabs.rebirths.lastConfirmedAt = nil
+tabs.rebirths.nextRequestAt = 0
+tabs.rebirths.cooldown = 6
 tabs.rebirths.totalElapsed = 0
-tabs.rebirths.startRebirths = tabs.rebirths.rebirths.Value
-tabs.rebirths.gainedBaselineSet = false
-tabs.rebirths.lastRebirthAt = tick()
-tabs.rebirths.lastRebirthValue = tabs.rebirths.rebirths.Value
-tabs.rebirths.paceBaselineReady = false
+tabs.rebirths.statSamples = {Rebirths = tabs.rebirths.rebirths.Value}
+tabs.rebirths.statGains = {Rebirths = 0}
 tabs.rebirths.generation = 0
 tabs.rebirths.adaptive = {
     TargetSeconds = 3,
@@ -439,65 +444,24 @@ tabs.rebirths.adaptive = {
 tabs.rebirths.Status = tabs.rebirths:AddLabel("Status: Inactive")
 tabs.rebirths.Runtime = tabs.rebirths:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.rebirths.RebirthStats = tabs.rebirths:AddLabel("Rebirths: " .. formatCurrentStat(tabs.rebirths.rebirths.Value) .. " | Gained: 0")
-tabs.rebirths.Pace = tabs.rebirths:AddLabel("Pace: -- / Hour | -- / Day | -- / Week")
-tabs.rebirths.AveragePace = tabs.rebirths:AddLabel("Average: -- / Hour | -- / Day | -- / Week")
+tabs.rebirths.AverageRate = tabs.rebirths:AddLabel("Average: -- / Hour | -- / Day | -- / Week")
 tabs.rebirths.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
 
 tabs.rebirths.updateStats = function()
     tabs.rebirths.RebirthStats.Text = "Rebirths: " .. formatCurrentStat(tabs.rebirths.rebirths.Value)
-        .. " | Gained: " .. formatNumber(tabs.rebirths.rebirths.Value - tabs.rebirths.startRebirths)
+        .. " | Gained: " .. formatNumber(tabs.rebirths.statGains.Rebirths)
 end
 
 tabs.rebirths.updateRuntime = function()
     updateRuntimeLabel(tabs.rebirths)
 end
 
-tabs.rebirths.updatePace = function()
-    if not tabs.rebirths.running then
-        return
-    end
-
-    if not tabs.rebirths.paceBaselineReady then
-        tabs.rebirths.paceBaselineReady = true
-        tabs.rebirths.timerStarted = true
-        tabs.rebirths.startedAt = tick()
-        tabs.rebirths.lastRebirthAt = tick()
-        tabs.rebirths.lastRebirthValue = tabs.rebirths.rebirths.Value
-        tabs.rebirths.averageStartedAt = tick()
-        tabs.rebirths.averageStartRebirths = tabs.rebirths.rebirths.Value
-        return
-    end
-
-    if tabs.rebirths.rebirths.Value <= tabs.rebirths.lastRebirthValue then
-        return
-    end
-
-    tabs.rebirths.rebirthGain = tabs.rebirths.rebirths.Value - tabs.rebirths.lastRebirthValue
-    tabs.rebirths.secondsPerRebirth = (tick() - tabs.rebirths.lastRebirthAt) / tabs.rebirths.rebirthGain
-    tabs.rebirths.hourlyPace = 3600 / tabs.rebirths.secondsPerRebirth
-    tabs.rebirths.dailyPace = 86400 / tabs.rebirths.secondsPerRebirth
-    tabs.rebirths.weeklyPace = 604800 / tabs.rebirths.secondsPerRebirth
-
-    tabs.rebirths.Pace.Text = string.format(
-        "Pace: %s / Hour | %s / Day | %s / Week",
-        formatNumber(tabs.rebirths.hourlyPace),
-        formatNumber(tabs.rebirths.dailyPace),
-        formatNumber(tabs.rebirths.weeklyPace)
-    )
-
-    tabs.rebirths.averageElapsed = tick() - tabs.rebirths.averageStartedAt
-    tabs.rebirths.averageHourlyPace = (tabs.rebirths.rebirths.Value - tabs.rebirths.averageStartRebirths)
-        / tabs.rebirths.averageElapsed * 3600
-
-    tabs.rebirths.AveragePace.Text = string.format(
-        "Average: %s / Hour | %s / Day | %s / Week",
-        formatNumber(tabs.rebirths.averageHourlyPace),
-        formatNumber(tabs.rebirths.averageHourlyPace * 24),
-        formatNumber(tabs.rebirths.averageHourlyPace * 168)
-    )
-
-    tabs.rebirths.lastRebirthAt = tick()
-    tabs.rebirths.lastRebirthValue = tabs.rebirths.rebirths.Value
+tabs.rebirths.updateAverage = function()
+    local elapsed = getElapsed(tabs.rebirths)
+    if elapsed <= 0 then return end
+    local hourly = tabs.rebirths.statGains.Rebirths / elapsed * 3600
+    tabs.rebirths.AverageRate.Text = string.format("Average: %s / Hour | %s / Day | %s / Week",
+        formatNumber(hourly), formatNumber(hourly * 24), formatNumber(hourly * 168))
 end
 
 tabs.rebirths.isCurrent = function(generation)
@@ -578,8 +542,15 @@ tabs.rebirths.performRebirth = function(generation)
     tabs.rebirths.equipRebirthPets(generation)
     task.wait(0.25)
     while tabs.rebirths.isCurrent(generation) and tabs.rebirths.rebirths.Value == cycle.Rebirths do
-        services.replicatedstorage.rEvents.rebirthRemote:InvokeServer("rebirthRequest")
-        task.wait(0.25)
+        local remaining = tabs.rebirths.nextRequestAt - os.clock()
+        if remaining > 0 then
+            tabs.rebirths.Status.Text = "Status: Rebirth Cooldown | " .. string.format("%.1fs", remaining)
+            task.wait(math.min(remaining, 0.1))
+        else
+            tabs.rebirths.nextRequestAt = os.clock() + tabs.rebirths.cooldown
+            services.replicatedstorage.rEvents.rebirthRemote:InvokeServer("rebirthRequest")
+            tabs.rebirths.recordRebirth()
+        end
     end
 end
 
@@ -601,40 +572,48 @@ tabs.rebirths.startWorker = function()
     end, tabs.rebirths.generation)
 end
 
-runtime:Connect(tabs.rebirths.rebirths:GetPropertyChangedSignal("Value"), function()
-    tabs.rebirths.updatePace()
+tabs.rebirths.recordRebirth = function()
+    local current = tabs.rebirths.rebirths.Value
+    local previous = tabs.rebirths.statSamples.Rebirths
+    if current > previous then
+        tabs.rebirths.lastConfirmedAt = os.clock()
+        tabs.rebirths.nextRequestAt = tabs.rebirths.lastConfirmedAt + tabs.rebirths.cooldown
+        if tabs.rebirths.running then
+            if not tabs.rebirths.baselineReady then
+                tabs.rebirths.baselineReady = true
+                tabs.rebirths.statSamples.Rebirths = current
+                setTimerRunning(tabs.rebirths, true)
+            else
+                recordStatGain(tabs.rebirths, "Rebirths", current)
+                tabs.rebirths.measuredCycles = tabs.rebirths.measuredCycles + 1
+                if tabs.rebirths.measuredCycles >= 2 then tabs.rebirths.updateAverage() end
+            end
+        end
+    end
+    tabs.rebirths.statSamples.Rebirths = current
     tabs.rebirths.updateStats()
-end)
+end
+
+runtime:Connect(tabs.rebirths.rebirths:GetPropertyChangedSignal("Value"), tabs.rebirths.recordRebirth)
 
 tabs.rebirths.Switch = tabs.rebirths:AddSwitch("Pack Rebirth (Yes, Robux Packs)", function(state)
+    tabs.rebirths.recordRebirth()
+    setTimerRunning(tabs.rebirths, state and tabs.rebirths.baselineReady)
+    tabs.rebirths.statSamples.Rebirths = tabs.rebirths.rebirths.Value
     tabs.rebirths.generation = tabs.rebirths.generation + 1
     tabs.rebirths.running = state
     if state then
         if tabs.strength.running then tabs.strength.FastRepToggle:Set(false) end
         tabs.rebirths.hasStarted = true
-        tabs.rebirths.startedAt = 0
-        tabs.rebirths.timerStarted = false
-        if not tabs.rebirths.gainedBaselineSet then
-            tabs.rebirths.startRebirths = tabs.rebirths.rebirths.Value
-            tabs.rebirths.gainedBaselineSet = true
-        end
-        tabs.rebirths.lastRebirthAt = tick()
-        tabs.rebirths.lastRebirthValue = tabs.rebirths.rebirths.Value
-        tabs.rebirths.paceBaselineReady = false
         tabs.rebirths.Status.Text = "Status: Rebirthing"
         tabs.rebirths.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
         tabs.rebirths.updateStats()
         tabs.rebirths.startWorker()
     else
-        if tabs.rebirths.timerStarted and tabs.rebirths.startedAt > 0 then
-            tabs.rebirths.totalElapsed = tabs.rebirths.totalElapsed + tick() - tabs.rebirths.startedAt
-            tabs.rebirths.startedAt = 0
-            tabs.rebirths.timerStarted = false
-        end
         tabs.rebirths.Status.Text = tabs.rebirths.hasStarted and "Status: Paused" or "Status: Inactive"
         tabs.rebirths.Status.TextColor3 = tabs.rebirths.hasStarted and Color3.fromRGB(255, 180, 70) or Color3.fromRGB(255, 80, 80)
-        tabs.rebirths.updateRuntime()
     end
+    tabs.rebirths.updateRuntime()
 end)
 tabs.rebirths.Switch:Set(false)
 
@@ -647,14 +626,10 @@ tabs.strength.startedAt = 0
 tabs.strength.totalElapsed = 0
 tabs.strength.timerStarted = false
 tabs.strength.gainedBaselineSet = false
-tabs.strength.startStrength = tabs.strength.strength.Value
-tabs.strength.startDurability = tabs.strength.durability.Value
-tabs.strength.calculationInterval = 10
-tabs.strength.lastCalculationAt = tick()
-tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
-tabs.strength.lastCalculatedDurability = tabs.strength.durability.Value
+tabs.strength.statSamples = {Strength = tabs.strength.strength.Value, Durability = tabs.strength.durability.Value}
+tabs.strength.statGains = {Strength = 0, Durability = 0}
 tabs.strength.initialSendRate = 200
-tabs.strength.maxSendRate = 656
+tabs.strength.maxSendRate = 640
 tabs.strength.sendRate = math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate)
 tabs.strength.maxBurst = 24
 tabs.strength.Tokens = 0
@@ -668,8 +643,6 @@ tabs.strength.Status = tabs.strength:AddLabel("Status: Inactive")
 tabs.strength.Runtime = tabs.strength:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.strength.StrengthStats = tabs.strength:AddLabel("Strength: " .. formatCurrentStat(tabs.strength.strength.Value) .. " | Gained: 0")
 tabs.strength.DurabilityStats = tabs.strength:AddLabel("Durability: " .. formatCurrentStat(tabs.strength.durability.Value) .. " | Gained: 0")
-tabs.strength.StrengthPace = tabs.strength:AddLabel("Str Pace: --/s | --/min | --/h | --/d")
-tabs.strength.DurabilityPace = tabs.strength:AddLabel("Dura Pace: --/s | --/min | --/h | --/d")
 tabs.strength.StrengthAverage = tabs.strength:AddLabel("Str Ø: --/s | --/min | --/h | --/d")
 tabs.strength.DurabilityAverage = tabs.strength:AddLabel("Dura Ø: --/s | --/min | --/h | --/d")
 tabs.strength.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -680,64 +653,28 @@ end
 
 tabs.strength.updateStats = function()
     tabs.strength.StrengthStats.Text = "Strength: " .. formatCurrentStat(tabs.strength.strength.Value)
-        .. " | Gained: " .. formatNumber(tabs.strength.strength.Value - tabs.strength.startStrength)
+        .. " | Gained: " .. (tabs.strength.running and not tabs.strength.timerStarted
+            and "Preparing" or formatNumber(tabs.strength.statGains.Strength))
     tabs.strength.DurabilityStats.Text = "Durability: " .. formatCurrentStat(tabs.strength.durability.Value)
-        .. " | Gained: " .. formatNumber(tabs.strength.durability.Value - tabs.strength.startDurability)
+        .. " | Gained: " .. (tabs.strength.running and not tabs.strength.timerStarted
+            and "Preparing" or formatNumber(tabs.strength.statGains.Durability))
 end
 
-tabs.strength.updatePace = function()
-    if not tabs.strength.running then
-        return
-    end
-
-    if not tabs.strength.timerStarted then
-        if tabs.strength.strength.Value == tabs.strength.startStrength and tabs.strength.durability.Value == tabs.strength.startDurability then
-            return
-        end
-
-        tabs.strength.timerStarted = true
-        tabs.strength.startedAt = tick()
-        tabs.strength.lastCalculationAt = tick()
-        tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
-        tabs.strength.lastCalculatedDurability = tabs.strength.durability.Value
-        return
-    end
-
+tabs.strength.updateAverage = function()
+    local elapsed = getElapsed(tabs.strength)
+    if elapsed <= 0 then return end
+    tabs.strength.StrengthAverage.Text = "Str Ø: " .. formatRate(tabs.strength.statGains.Strength / elapsed)
+    tabs.strength.DurabilityAverage.Text = "Dura Ø: " .. formatRate(tabs.strength.statGains.Durability / elapsed)
 end
 
-tabs.strength.calculatePace = function()
-    if not tabs.strength.running or not tabs.strength.timerStarted then
-        return
-    end
-
-    if tick() - tabs.strength.lastCalculationAt < tabs.strength.calculationInterval then
-        return
-    end
-
-    tabs.strength.calculationElapsed = tick() - tabs.strength.lastCalculationAt
-    tabs.strength.strengthDelta = tabs.strength.strength.Value - tabs.strength.lastCalculatedStrength
-    tabs.strength.durabilityDelta = tabs.strength.durability.Value - tabs.strength.lastCalculatedDurability
-    tabs.strength.strengthPacePerSecond = tabs.strength.strengthDelta / tabs.strength.calculationElapsed
-    tabs.strength.durabilityPacePerSecond = tabs.strength.durabilityDelta / tabs.strength.calculationElapsed
-
-    if tabs.strength.strengthDelta > 0 then
-        tabs.strength.StrengthPace.Text = "Str Pace: " .. formatPace(tabs.strength.strengthPacePerSecond)
-    end
-    if tabs.strength.durabilityDelta > 0 then
-        tabs.strength.DurabilityPace.Text = "Dura Pace: " .. formatPace(tabs.strength.durabilityPacePerSecond)
-    end
-
-    tabs.strength.averageElapsed = tabs.strength.totalElapsed + tick() - tabs.strength.startedAt
-    tabs.strength.averageStrengthPerSecond = (tabs.strength.strength.Value - tabs.strength.startStrength)
-        / tabs.strength.averageElapsed
-    tabs.strength.averageDurabilityPerSecond = (tabs.strength.durability.Value - tabs.strength.startDurability)
-        / tabs.strength.averageElapsed
-    tabs.strength.StrengthAverage.Text = "Str Ø: " .. formatPace(tabs.strength.averageStrengthPerSecond)
-    tabs.strength.DurabilityAverage.Text = "Dura Ø: " .. formatPace(tabs.strength.averageDurabilityPerSecond)
-
-    tabs.strength.lastCalculationAt = tick()
-    tabs.strength.lastCalculatedStrength = tabs.strength.strength.Value
-    tabs.strength.lastCalculatedDurability = tabs.strength.durability.Value
+tabs.strength.startMeasurement = function()
+    if not tabs.strength.running or tabs.strength.timerStarted
+        or tabs.strength.sendRate < tabs.strength.maxSendRate then return end
+    tabs.strength.statSamples.Strength = tabs.strength.strength.Value
+    tabs.strength.statSamples.Durability = tabs.strength.durability.Value
+    setTimerRunning(tabs.strength, true)
+    tabs.strength.nextAverageElapsed = getElapsed(tabs.strength) + 10
+    tabs.strength.updateStats()
 end
 
 tabs.strength.updateAdaptiveRate = function()
@@ -753,8 +690,8 @@ tabs.strength.updateAdaptiveRate = function()
     if tabs.strength.serverProgress then
         tabs.strength.stalledIntervals = 0
         tabs.strength.sendRate = math.min(tabs.strength.maxSendRate, tabs.strength.sendRate * 1.12)
-        tabs.strength.Status.Text = "Status: Farming | "
-            .. formatNumber(tabs.strength.sendRate) .. " reps/s"
+        tabs.strength.Status.Text = (tabs.strength.sendRate >= tabs.strength.maxSendRate
+            and "Status: Farming | " or "Status: Preparing | ") .. formatNumber(tabs.strength.sendRate) .. " reps/s"
         tabs.strength.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
     else
         tabs.strength.stalledIntervals = tabs.strength.stalledIntervals + 1
@@ -780,6 +717,7 @@ tabs.strength.workerLoop = function()
     end
     while tabs.strength.running do
         tabs.strength.updateAdaptiveRate()
+        tabs.strength.startMeasurement()
         sendTrainingReps(tabs.strength, tabs.strength.sendRate, tabs.strength.maxBurst, isRunning)
 
         services.runservice.Heartbeat:Wait()
@@ -801,77 +739,72 @@ tabs.strength.startWorker = function()
 end
 
 runtime:Connect(tabs.strength.strength:GetPropertyChangedSignal("Value"), function()
-    tabs.strength.statsDirty = true
-    tabs.strength.updatePace()
+    recordStatGain(tabs.strength, "Strength", tabs.strength.strength.Value)
+    tabs.strength.updateStats()
 end)
 
 runtime:Connect(tabs.strength.durability:GetPropertyChangedSignal("Value"), function()
-    tabs.strength.statsDirty = true
-    tabs.strength.updatePace()
+    recordStatGain(tabs.strength, "Durability", tabs.strength.durability.Value)
+    tabs.strength.updateStats()
 end)
 
 tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(inputText, value)
     value = tonumber(inputText)
     if not value or value ~= value or value == math.huge or value == -math.huge then return end
-    tabs.strength.maxSendRate = math.max(1, value)
+    value = math.max(1, value)
+    if value ~= tabs.strength.maxSendRate and tabs.strength.running then
+        recordStatGain(tabs.strength, "Strength", tabs.strength.strength.Value)
+        recordStatGain(tabs.strength, "Durability", tabs.strength.durability.Value)
+        setTimerRunning(tabs.strength, false)
+        tabs.strength.updateStats()
+    end
+    tabs.strength.maxSendRate = value
     tabs.strength.sendRate = math.min(tabs.strength.sendRate, tabs.strength.maxSendRate)
 end, {clear = false})
 
-tabs.strength:AddLabel("Recommended Speed: 656, more = lag")
+tabs.strength:AddLabel("Recommended Speed: 640, you can always try more.")
 
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
+    recordStatGain(tabs.strength, "Strength", tabs.strength.strength.Value)
+    recordStatGain(tabs.strength, "Durability", tabs.strength.durability.Value)
+    setTimerRunning(tabs.strength, false)
+    tabs.strength.statSamples.Strength = tabs.strength.strength.Value
+    tabs.strength.statSamples.Durability = tabs.strength.durability.Value
     tabs.strength.running = state
     tabs.strength.Tokens = 0
     if state then
         if tabs.rebirths.running then tabs.rebirths.Switch:Set(false) end
-        if not tabs.strength.gainedBaselineSet then
-            tabs.strength.startStrength = tabs.strength.strength.Value
-            tabs.strength.startDurability = tabs.strength.durability.Value
-            tabs.strength.gainedBaselineSet = true
-        end
-        tabs.strength.timerStarted = false
-        tabs.strength.startedAt = 0
+        tabs.strength.gainedBaselineSet = true
         tabs.strength.sendRate = math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate)
         tabs.strength.LastAt = os.clock()
         tabs.strength.lastControlAt = tick()
         tabs.strength.lastControlStrength = tabs.strength.strength.Value
         tabs.strength.lastControlDurability = tabs.strength.durability.Value
         tabs.strength.stalledIntervals = 0
-        tabs.strength.Status.Text = "Status: Farming | " .. formatNumber(tabs.strength.sendRate) .. " reps/s"
+        tabs.strength.Status.Text = "Status: Preparing | " .. formatNumber(tabs.strength.sendRate) .. " reps/s"
         tabs.strength.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
         tabs.strength.startWorker()
     else
-        if tabs.strength.timerStarted and tabs.strength.startedAt > 0 then
-            tabs.strength.totalElapsed = tabs.strength.totalElapsed + tick() - tabs.strength.startedAt
-            tabs.strength.startedAt = 0
-            tabs.strength.timerStarted = false
-        end
         tabs.strength.Status.Text = tabs.strength.gainedBaselineSet and "Status: Paused" or "Status: Inactive"
         tabs.strength.Status.TextColor3 = tabs.strength.gainedBaselineSet and Color3.fromRGB(255, 180, 70) or Color3.fromRGB(255, 80, 80)
         tabs.strength.updateRuntime()
     end
+    tabs.strength.updateStats()
 end)
 
 tabs.strength.FastRepToggle:Set(false)
 
 runtime:Spawn(function()
-    local lastRuntimeAt = 0
     while true do
-        if tabs.strength.statsDirty then
-            tabs.strength.statsDirty = false
-            tabs.strength.updateStats()
+        tabs.rebirths.updateRuntime()
+        tabs.strength.updateRuntime()
+        if tabs.strength.timerStarted and getElapsed(tabs.strength) >= tabs.strength.nextAverageElapsed then
+            tabs.strength.updateAverage()
+            tabs.strength.nextAverageElapsed = getElapsed(tabs.strength) + 10
         end
-        if os.clock() - lastRuntimeAt >= 1 then
-            tabs.rebirths.updateRuntime()
-            tabs.strength.updateRuntime()
-            tabs.strength.calculatePace()
-            lastRuntimeAt = os.clock()
-        end
-        task.wait(0.25)
+        task.wait(0.1)
     end
 end)
-
-tabs.strength:AddLabel("Reaching Average Speed takes some time!")
 
 tabs.boss.runtime = {}
 
@@ -1747,7 +1680,9 @@ function eatShake()
     tabs.other.backpack = lp.player:FindFirstChild("Backpack")
     tabs.other.tool = (tabs.other.character and tabs.other.character:FindFirstChild("Tropical Shake")) or (tabs.other.backpack and tabs.other.backpack:FindFirstChild("Tropical Shake"))
     if tabs.other.tool then
+    for _ = 1, 10 do
         services.muscleEvent:FireServer("tropicalShake", tabs.other.tool)
+    end
     end
 end
 
@@ -1755,14 +1690,14 @@ runtime:Spawn(function()
     while true do
         if tabs.other.autoShake then
             eatShake()
-            task.wait(150)
+            task.wait(0.5)
         else
             task.wait(1)
         end
     end
 end)
 
-tabs.other:AddSwitch("Auto Shake (just to eat them)", function(state)
+tabs.other:AddSwitch("Eat Shakes", function(state)
     tabs.other.autoShake = state
     if state then
         eatShake()
@@ -1805,7 +1740,6 @@ tabs.other.boostItemList = {
 }
 
 tabs.other.boostActions = {
-    ["Tropical Shake"] = "tropicalShake",
     ["Energy Shake"] = "energyShake",
     ["Protein Bar"] = "proteinBar",
     ["TOUGH Bar"] = "toughBar",
