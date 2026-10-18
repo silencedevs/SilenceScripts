@@ -1415,11 +1415,14 @@ function library:AddWindow(title, options)
     local function clampPosition()
         local available = availableSize()
         local width = expandedSize.X.Offset * uiScale.Scale
-        local height = (minimized and 26 or expandedSize.Y.Offset) * uiScale.Scale
         local x = Window.Position.X.Scale * available.X + Window.Position.X.Offset
         local y = Window.Position.Y.Scale * available.Y + Window.Position.Y.Offset
-        Window.Position = UDim2.fromOffset(math.clamp(x, 12, math.max(12, available.X - width - 12)),
-            math.clamp(y, 12, math.max(12, available.Y - height - 12)))
+        -- Keep a usable part of the header reachable, even if the body exceeds the screen
+        local visibleHeader = math.min(width, math.max(48, math.min(160 * uiScale.Scale, available.X - 24)))
+        local minX = math.min(12, available.X - width - 12)
+        local maxX = math.max(12, available.X - visibleHeader - 12)
+        local maxY = math.max(12, available.Y - 26 * uiScale.Scale - 12)
+        Window.Position = UDim2.fromOffset(math.clamp(x, minX, maxX), math.clamp(y, 12, maxY))
     end
 
     local function updateScale()
@@ -1837,14 +1840,24 @@ function library:AddWindow(title, options)
                 gesture.Size.Y.Offset + delta.Y / gesture.Scale))
         end
     end
-    runtime:Connect(UIS.InputChanged, updateGesture)
-    runtime:Connect(UIS.InputEnded, function(input)
+    runtime:Connect(UIS.InputChanged, function(input)
+        if input.UserInputType ~= Enum.UserInputType.Touch then updateGesture(input) end
+    end)
+    runtime:Connect(UIS.TouchMoved, updateGesture)
+    local function finishGesture(input)
         if gesture and (input == gesture.Input or (gesture.Input.UserInputType == Enum.UserInputType.MouseButton1
             and input.UserInputType == Enum.UserInputType.MouseButton1)) then
             local handle = gesture.Handle
             endGesture()
             if handle then updateGrip(handle, hovered[handle] == true) end
         end
+    end
+    runtime:Connect(UIS.InputEnded, finishGesture)
+    runtime:Connect(UIS.TouchEnded, finishGesture)
+    runtime:Connect(UIS.WindowFocusReleased, function()
+        local handle = gesture and gesture.Handle
+        endGesture()
+        if handle then updateGrip(handle, false) end
     end)
     for _, handle in ipairs({Resizer, BottomResize}) do
         runtime:Connect(handle.MouseEnter, function()
