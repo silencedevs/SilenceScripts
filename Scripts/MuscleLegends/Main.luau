@@ -390,10 +390,59 @@ tabs.main.saveRedactConfig = function()
 	end)
 end
 
+tabs.main.NameVisibility = {Character = nil, Connections = {}, Guis = {}, Watches = {}}
+
+tabs.main.clearNameVisibility = function()
+    local state = tabs.main.NameVisibility
+    for _, connection in ipairs(state.Connections) do
+        connection:Disconnect()
+        runtime.Connections[connection] = nil
+    end
+    table.clear(state.Connections)
+    for gui, connection in pairs(state.Watches) do
+        connection:Disconnect()
+        runtime.Connections[connection] = nil
+        state.Watches[gui] = nil
+    end
+    for gui, wasEnabled in pairs(state.Guis) do
+        if gui.Parent then gui.Enabled = wasEnabled end
+    end
+    table.clear(state.Guis)
+    state.Character = nil
+end
+runtime:AddCleanup(tabs.main.clearNameVisibility)
+
 tabs.main.applyNameVisibility = function()
-	pcall(function()
-		services.Workspace.HenneZocktTV.Head.nameGui.Enabled = not tabs.main.RedactConfig.RedactName
-	end)
+    local state = tabs.main.NameVisibility
+    local character = utils.playerData.Player.Character
+    if state.Character ~= character then
+        tabs.main.clearNameVisibility()
+        state.Character = character
+        if character then
+            local function watchNameGui(gui)
+                if not gui:IsA("BillboardGui") or gui.Name ~= "nameGui" or state.Guis[gui] ~= nil then return end
+                state.Guis[gui] = gui.Enabled
+                state.Watches[gui] = runtime:Connect(gui:GetPropertyChangedSignal("Enabled"), function()
+                    if tabs.main.RedactConfig.RedactName and gui.Enabled then gui.Enabled = false end
+                end)
+                if tabs.main.RedactConfig.RedactName then gui.Enabled = false end
+            end
+            table.insert(state.Connections, runtime:Connect(character.DescendantAdded, watchNameGui))
+            table.insert(state.Connections, runtime:Connect(character.DescendantRemoving, function(gui)
+                if state.Guis[gui] ~= nil then
+                    local connection = state.Watches[gui]
+                    if connection then connection:Disconnect(); runtime.Connections[connection] = nil end
+                    state.Watches[gui] = nil
+                    gui.Enabled = state.Guis[gui]
+                    state.Guis[gui] = nil
+                end
+            end))
+            for _, gui in ipairs(character:GetDescendants()) do watchNameGui(gui) end
+        end
+    end
+    for gui, wasEnabled in pairs(state.Guis) do
+        if gui.Parent then gui.Enabled = not tabs.main.RedactConfig.RedactName and wasEnabled end
+    end
 end
 
 tabs.main.applyStatsVisibility = function()
@@ -417,13 +466,9 @@ tabs.main.RedactStatsSwitch = tabs.main:AddSwitch("Hide Stats", function(state)
 end)
 tabs.main.RedactStatsSwitch:Set(tabs.main.RedactConfig.RedactStats)
 
-runtime:Connect(utils.playerData.Player.CharacterAdded, function(character, head)
-	runtime:Defer(tabs.main.applyStatsVisibility)
-	if character.Name ~= "HenneZocktTV" then return end
-	head = character:WaitForChild("Head", 10)
-	if head and head:WaitForChild("nameGui", 10) and utils.playerData.Player.Character == character then
-		tabs.main.applyNameVisibility()
-	end
+runtime:Connect(utils.playerData.Player.CharacterAdded, function()
+    runtime:Defer(tabs.main.applyStatsVisibility)
+    tabs.main.applyNameVisibility()
 end)
 
 runtime:Connect(utils.playerData.Player.CharacterAdded, function(newChar)
@@ -665,21 +710,28 @@ end
 tabs.killing:AddLabel("Misc:")
 
 tabs.killing.equipBestStatPets = function(priority)
-	for _, folder in pairs(services.Players.LocalPlayer.petsFolder:GetChildren()) do
-		if folder:IsA("Folder") then
-			for _, pet in pairs(folder:GetChildren()) do
-				services.ReplicatedStorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
-			end
-		end
-	end
+    -- equippedPets slots reference character models; this remote needs inventory entries
+    for _, folder in ipairs(services.Players.LocalPlayer.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in ipairs(folder:GetChildren()) do
+                services.ReplicatedStorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
+            end
+        end
+    end
 
 	task.wait(0.2)
 	tabs.killing.runtime.petsByName = {}
 	for _, petName in ipairs(priority) do tabs.killing.runtime.petsByName[petName] = {} end
 
-	for _, pet in pairs(services.Players.LocalPlayer.petsFolder.Unique:GetChildren()) do
-		if tabs.killing.runtime.petsByName[pet.Name] then table.insert(tabs.killing.runtime.petsByName[pet.Name], pet) end
-	end
+    for _, folder in ipairs(services.Players.LocalPlayer.petsFolder:GetChildren()) do
+        if folder:IsA("Folder") then
+            for _, pet in ipairs(folder:GetChildren()) do
+                if tabs.killing.runtime.petsByName[pet.Name] then
+                    table.insert(tabs.killing.runtime.petsByName[pet.Name], pet)
+                end
+            end
+        end
+    end
 
 	tabs.killing.runtime.equippedCount = 0
 	for _, petName in ipairs(priority) do

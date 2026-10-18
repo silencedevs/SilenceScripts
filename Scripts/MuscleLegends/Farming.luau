@@ -130,10 +130,59 @@ tabs.other.saveRedactConfig = function()
     end)
 end
 
+tabs.other.NameVisibility = {Character = nil, Connections = {}, Guis = {}, Watches = {}}
+
+tabs.other.clearNameVisibility = function()
+    local state = tabs.other.NameVisibility
+    for _, connection in ipairs(state.Connections) do
+        connection:Disconnect()
+        runtime.Connections[connection] = nil
+    end
+    table.clear(state.Connections)
+    for gui, connection in pairs(state.Watches) do
+        connection:Disconnect()
+        runtime.Connections[connection] = nil
+        state.Watches[gui] = nil
+    end
+    for gui, wasEnabled in pairs(state.Guis) do
+        if gui.Parent then gui.Enabled = wasEnabled end
+    end
+    table.clear(state.Guis)
+    state.Character = nil
+end
+runtime:AddCleanup(tabs.other.clearNameVisibility)
+
 tabs.other.applyNameVisibility = function()
-    pcall(function()
-        workspace.HenneZocktTV.Head.nameGui.Enabled = not tabs.other.RedactConfig.RedactName
-    end)
+    local state = tabs.other.NameVisibility
+    local character = lp.player.Character
+    if state.Character ~= character then
+        tabs.other.clearNameVisibility()
+        state.Character = character
+        if character then
+            local function watchNameGui(gui)
+                if not gui:IsA("BillboardGui") or gui.Name ~= "nameGui" or state.Guis[gui] ~= nil then return end
+                state.Guis[gui] = gui.Enabled
+                state.Watches[gui] = runtime:Connect(gui:GetPropertyChangedSignal("Enabled"), function()
+                    if tabs.other.RedactConfig.RedactName and gui.Enabled then gui.Enabled = false end
+                end)
+                if tabs.other.RedactConfig.RedactName then gui.Enabled = false end
+            end
+            table.insert(state.Connections, runtime:Connect(character.DescendantAdded, watchNameGui))
+            table.insert(state.Connections, runtime:Connect(character.DescendantRemoving, function(gui)
+                if state.Guis[gui] ~= nil then
+                    local connection = state.Watches[gui]
+                    if connection then connection:Disconnect(); runtime.Connections[connection] = nil end
+                    state.Watches[gui] = nil
+                    gui.Enabled = state.Guis[gui]
+                    state.Guis[gui] = nil
+                end
+            end))
+            for _, gui in ipairs(character:GetDescendants()) do watchNameGui(gui) end
+        end
+    end
+    for gui, wasEnabled in pairs(state.Guis) do
+        if gui.Parent then gui.Enabled = not tabs.other.RedactConfig.RedactName and wasEnabled end
+    end
 end
 
 tabs.other.applyStatsVisibility = function()
@@ -2393,13 +2442,9 @@ tabs.other.RedactStatsSwitch = tabs.other:AddSwitch("Hide Stats", function(state
 end)
 tabs.other.RedactStatsSwitch:Set(tabs.other.RedactConfig.RedactStats)
 
-runtime:Connect(lp.player.CharacterAdded, function(character, head)
+runtime:Connect(lp.player.CharacterAdded, function()
     runtime:Defer(tabs.other.applyStatsVisibility)
-    if character.Name ~= "HenneZocktTV" then return end
-    head = character:WaitForChild("Head", 10)
-    if head and head:WaitForChild("nameGui", 10) and lp.player.Character == character then
-        tabs.other.applyNameVisibility()
-    end
+    tabs.other.applyNameVisibility()
 end)
 
 tabs.other:AddButton("Anti Lag (for bad devices)", function()
