@@ -968,6 +968,14 @@ windowsFrame.Size = UDim2.new(1, 20, 1, -20)
 local root = imgui
 
 local UIS = game:GetService("UserInputService")
+local mobileDevice = UIS.TouchEnabled and not UIS.KeyboardEnabled
+if mobileDevice then
+    -- Mobile windows may move into the top-bar region while respecting device cutouts
+    imgui.IgnoreGuiInset = true
+    imgui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+    windowsFrame.Position = UDim2.fromOffset(0, 0)
+    windowsFrame.Size = UDim2.fromScale(1, 1)
+end
 local TweenService = game:GetService("TweenService")
 local RS = game:GetService("RunService")
 local ps = game:GetService("Players")
@@ -1332,7 +1340,7 @@ function library:AddWindow(title, options)
     local uiScale = Instance.new("UIScale")
     uiScale.Name = "WindowScale"
     uiScale.Parent = Window
-    local mobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+    local mobile = mobileDevice
     local initialScale = mobile and 0.75 or 1
     local requestedScale = initialScale
     function window_data:GetScale() return uiScale.Scale end
@@ -1794,8 +1802,7 @@ function library:AddWindow(title, options)
         if gesture or minimized or dropdown_open then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
             and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local point = Vector2.new(input.Position.X, input.Position.Y)
-        if imgui.IgnoreGuiInset then point = point + game:GetService("GuiService"):GetGuiInset() end
+        local point = scrollbarPoint(input)
         for surface in pairs(contentSurfaces) do
             if surface.Parent and contains(surface, point) and visibleAt(surface, point)
                 and not overControl(surface, point) then
@@ -2438,7 +2445,7 @@ function library:AddWindow(title, options)
                             callback(selected)
                         end
                         local function updateFromInput(input)
-                            local fraction = math.clamp((input.Position.X - initialX) / initialWidth, 0, 1)
+                            local fraction = math.clamp((scrollbarPoint(input).X - initialX) / initialWidth, 0, 1)
                             local before = selected
                             render(minimum + fraction * (maximum - minimum))
                             if selected ~= before and not commitOnRelease then notify() end
@@ -2890,8 +2897,7 @@ function library:AddWindow(title, options)
                             callback(color)
                         end
                         local function update(input)
-                            local position = Vector2.new(input.Position.X, input.Position.Y)
-                            if imgui.IgnoreGuiInset then position = position + game:GetService("GuiService"):GetGuiInset() end
+                            local position = scrollbarPoint(input)
                             if area == palette then
                                 saturation = math.clamp((position.X - palette.AbsolutePosition.X) / math.max(1, palette.AbsoluteSize.X), 0, 1)
                                 brightness = 1 - math.clamp((position.Y - palette.AbsolutePosition.Y) / math.max(1, palette.AbsoluteSize.Y), 0, 1)
