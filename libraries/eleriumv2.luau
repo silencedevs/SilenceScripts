@@ -140,10 +140,10 @@ local top = Instance.new("ImageLabel")
 local tabs = Instance.new("Frame")
 local titleLabel = Instance.new("TextLabel")
 local tabSelection = Instance.new("ImageLabel")
-local tabButtons = Instance.new("Frame")
+local tabButtons = Instance.new("ScrollingFrame")
 local uiListLayout = Instance.new("UIListLayout")
 local frame = Instance.new("Frame")
-local tab = Instance.new("Frame")
+local tab = Instance.new("ScrollingFrame")
 local uiListLayout2 = Instance.new("UIListLayout")
 local textBox = Instance.new("TextBox")
 local textBoxRoundify4px = Instance.new("ImageLabel")
@@ -331,6 +331,13 @@ tabButtons.Parent = tabSelection
 tabButtons.BackgroundColor3 = Color3.new(1, 1, 1)
 tabButtons.BackgroundTransparency = 1
 tabButtons.Size = UDim2.new(1, 0, 1, 0)
+tabButtons.BorderSizePixel = 0
+tabButtons.CanvasSize = UDim2.new()
+tabButtons.ScrollingDirection = Enum.ScrollingDirection.X
+tabButtons.ScrollBarThickness = 4
+tabButtons.ScrollBarImageColor3 = Color3.fromRGB(145, 150, 155)
+tabButtons.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+tabButtons.ClipsDescendants = true
 
 uiListLayout.Parent = tabButtons
 uiListLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -350,6 +357,14 @@ tab.BackgroundColor3 = Color3.new(1, 1, 1)
 tab.BackgroundTransparency = 1
 tab.Size = UDim2.new(1, 0, 1, 0)
 tab.Visible = false
+tab.BorderSizePixel = 0
+tab.CanvasSize = UDim2.new()
+tab.ScrollingDirection = Enum.ScrollingDirection.Y
+tab.ScrollBarThickness = 5
+tab.ScrollBarImageColor3 = Color3.fromRGB(145, 150, 155)
+tab.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+tab.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+tab.ClipsDescendants = true
 
 uiListLayout2.Parent = tab
 uiListLayout2.SortOrder = Enum.SortOrder.LayoutOrder
@@ -1016,7 +1031,7 @@ local function gNameLen(obj)
 end
 
 local function gMouse()
-	return Vector2.new(UIS:GetMouseLocation().X + 1, UIS:GetMouseLocation().Y - 35)
+	return UIS:GetMouseLocation() - game:GetService("GuiService"):GetGuiInset()
 end
 
 local function ripple(button, x, y)
@@ -1051,6 +1066,17 @@ end
 
 local windows = 0
 local library = {Runtime = runtime}
+library.WindowModules = {}
+library.WindowInstances = {}
+function library:Use(module)
+    assert(type(module) == "table" and type(module.Method) == "string" and type(module.Build) == "function", "Invalid library module")
+    self.WindowModules[module.Method] = module
+    for _, windowData in ipairs(self.WindowInstances) do
+        windowData[module.Method] = function(windowSelf, settings) return module:Build(windowSelf, settings) end
+    end
+    return self
+end
+
 
 function library:Destroy()
     runtime:Destroy()
@@ -1250,124 +1276,795 @@ function library:AddWindow(title, options)
 	end
 
 	local Resizer = Window:WaitForChild("Resizer")
-
+	local Title = Window:FindFirstChild("Title")
+	local Bar = Window:FindFirstChild("Bar")
+	local Toggle = Bar:FindFirstChild("Toggle")
+	local TabSelection = Window:FindFirstChild("TabSelection")
+	local Tabs = Window:FindFirstChild("Tabs")
 	local window_data = {}
+	local minimized = false
+	local expandedSize = Window.Size
+	local gesture
+	local sizeTween
+	local sizeVersion = 0
+	local contentSurfaces = {}
+	local resizeEnabled = options.can_resize ~= false
+	Window.ClipsDescendants = false
+	Window.Draggable = false
+    local windowRadius = 20
+    Window.ImageTransparency = 1
+    Window.BackgroundColor3 = Window.ImageColor3
+    Window.BackgroundTransparency = 0
+    local WindowCorner = Instance.new("UICorner")
+    WindowCorner.Name = "WindowCorner"
+    WindowCorner.CornerRadius = UDim.new(0, windowRadius)
+    WindowCorner.Parent = Window
+
+    local HeaderClip = Instance.new("Frame")
+    HeaderClip.Name = "HeaderClip"
+    HeaderClip.BackgroundTransparency = 1
+    HeaderClip.BorderSizePixel = 0
+    HeaderClip.Size = UDim2.new(1, 0, 0, 26)
+    HeaderClip.ClipsDescendants = true
+    HeaderClip.ZIndex = Window.ZIndex
+    HeaderClip.Parent = Window
+    local HeaderSurface = Instance.new("Frame")
+    HeaderSurface.Name = "HeaderSurface"
+    HeaderSurface.BackgroundColor3 = options.main_color
+    HeaderSurface.BorderSizePixel = 0
+    HeaderSurface.Size = UDim2.new(1, 0, 0, 46)
+    HeaderSurface.ZIndex = Window.ZIndex
+    HeaderSurface.Parent = HeaderClip
+    local HeaderCorner = Instance.new("UICorner")
+    HeaderCorner.Name = "HeaderCorner"
+    HeaderCorner.CornerRadius = UDim.new(0, windowRadius)
+    HeaderCorner.Parent = HeaderSurface
+    Bar.BackgroundTransparency = 1
+    Bar.Base.BackgroundTransparency = 1
+    Bar.Base.ImageTransparency = 1
+    Bar.Top.BackgroundTransparency = 1
+    Bar.Top.ImageTransparency = 1
+    runtime:Connect(Bar:GetPropertyChangedSignal("BackgroundColor3"), function()
+        HeaderSurface.BackgroundColor3 = Bar.BackgroundColor3
+    end)
+	Tabs.Position = UDim2.fromOffset(15, 68)
+	Tabs.Size = UDim2.new(1, -30, 1, -82)
+	TabSelection.Size = UDim2.new(1, -30, 0, 30)
+	TabSelection.Position = UDim2.fromOffset(15, 32)
+	Title.Position = UDim2.fromOffset(30, 3)
+	Title.Size = UDim2.new(1, -104, 0, 20)
+	Title.ZIndex = Window.ZIndex + 4
+	Title.Active = true
+	Toggle.ZIndex = Window.ZIndex + 5
+	Toggle.Position = UDim2.fromOffset(5, -2)
+
+	local function minimumSize()
+		local textSize = game:GetService("TextService"):GetTextSize(Title.Text, Title.TextSize,
+			Title.Font, Vector2.new(100000, 100000))
+		return Vector2.new(math.ceil(textSize.X) + 108, 300)
+	end
+
+	local function clampSize(size)
+		local minimum = minimumSize()
+		return UDim2.fromOffset(math.max(minimum.X, size.X.Offset), math.max(minimum.Y, size.Y.Offset))
+	end
+
+    local function applySize(size, animated)
+        expandedSize = clampSize(size)
+        sizeVersion = sizeVersion + 1
+        local version = sizeVersion
+        if sizeTween then sizeTween:Cancel() end
+        local target = minimized and UDim2.fromOffset(expandedSize.X.Offset, 26) or expandedSize
+        local function finish()
+            if version ~= sizeVersion then return end
+            Window.ClipsDescendants = minimized
+            Window.BackgroundTransparency = minimized and 1 or 0
+        end
+        if animated then
+            Window.ClipsDescendants = true
+            if not minimized then Window.BackgroundTransparency = 0 end
+            sizeTween = TweenService:Create(Window,
+                TweenInfo.new(options.tween_time, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = target})
+            sizeTween:Play()
+            runtime:Delay(options.tween_time, finish)
+        else
+            Window.Size = target
+            finish()
+        end
+    end
+
+    local function endGesture()
+        if gesture and gesture.Surface then
+            gesture.Surface.ScrollingEnabled = gesture.WasScrollingEnabled
+        end
+        gesture = nil
+    end
+
 	function window_data:Destroy()
 		library:Destroy()
 	end
-	Window.Draggable = true
 
 	function window_data:SetTitle(new_title)
 		if not runtime.Alive then return end
-		Window:FindFirstChild("Title").Text = tostring(new_title or "New Window")
+		Title.Text = tostring(new_title or "New Window")
+		applySize(expandedSize)
 	end
 
-	do
-		local oldIcon = mouse.Icon
-		local Entered = false
-		runtime:Connect(Resizer.MouseEnter, function()
-			Window.Draggable = false
-			if options.can_resize then
-				oldIcon = mouse.Icon
-
-			end
-			Entered = true
-		end)
-
-		runtime:Connect(Resizer.MouseLeave, function()
-			Entered = false
-			if options.can_resize then
-				mouse.Icon = oldIcon
-			end
-			Window.Draggable = true
-		end)
-
-		local Held = false
-		runtime:Connect(UIS.InputBegan, function(inputObject)
-			if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-				Held = true
-
-				runtime:Spawn(function()
-					if Entered and Resizer.Active and options.can_resize then
-						while Held and Resizer.Active do
-
-							local mouse_location = gMouse()
-							local x = mouse_location.X - Window.AbsolutePosition.X
-							local y = mouse_location.Y - Window.AbsolutePosition.Y
-
-							if x >= options.min_size.X and y >= options.min_size.Y then
-								Resize(Window, {Size = UDim2.new(0, x, 0, y)}, options.tween_time)
-							elseif x >= options.min_size.X then
-								Resize(Window, {Size = UDim2.new(0, x, 0, options.min_size.Y)}, options.tween_time)
-							elseif y >= options.min_size.Y then
-								Resize(Window, {Size = UDim2.new(0, options.min_size.X, 0, y)}, options.tween_time)
-							else
-								Resize(Window, {Size = UDim2.new(0, options.min_size.X, 0, options.min_size.Y)}, options.tween_time)
-							end
-
-							RS.Heartbeat:Wait()
-						end
-					end
-				end)
-			end
-		end)
-		runtime:Connect(UIS.InputEnded, function(inputObject)
-			if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-				Held = false
-			end
-		end)
+	function window_data:SetSize(size)
+		if not runtime.Alive then return end
+		applySize(UDim2.fromOffset(size.X, size.Y))
 	end
 
-	do
-		local open_close = Window:FindFirstChild("Bar"):FindFirstChild("Toggle")
-		local open = true
-		local canopen = true
+    local function lucideIcon(name, fallback)
+        local success, asset = pcall(function()
+            if type(getcustomasset) ~= "function" or type(writefile) ~= "function" then return fallback end
+            if type(makefolder) == "function" then
+                pcall(makefolder, "Silence")
+                pcall(makefolder, "Silence/LibraryAssets")
+            end
+            local path = "Silence/LibraryAssets/lucide-" .. name .. ".png"
+            if type(isfile) ~= "function" or not isfile(path) then
+                writefile(path, game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/assets/" .. name .. ".png"))
+            end
+            return getcustomasset(path)
+        end)
+        return success and asset or fallback
+    end
+    local lucideMinimize = lucideIcon("minimize-2", "rbxassetid://7733997870")
+    local lucideMaximize = lucideIcon("maximize", "rbxassetid://7733992982")
+    local lucideX = lucideIcon("x", "rbxassetid://7743878857")
 
-		local oldwindowdata = {}
-		local oldy = Window.AbsoluteSize.Y
-		runtime:Connect(open_close.MouseButton1Click, function()
-			if canopen then
-				canopen = false
-
-				if open then
-
-					oldwindowdata = {}
-					for i,v in pairs(Window:FindFirstChild("Tabs"):GetChildren()) do
-						oldwindowdata[v] = v.Visible
-						v.Visible = false
-					end
-
-					Resizer.Active = false
-
-					oldy = Window.AbsoluteSize.Y
-					Resize(Window, {Size = UDim2.new(0, Window.AbsoluteSize.X, 0, 26)}, options.tween_time)
-					open_close.Parent:FindFirstChild("Base").Transparency = 1
-
-				else
-
-					for i,v in pairs(oldwindowdata) do
-						i.Visible = v
-					end
-
-					Resizer.Active = true
-
-					Resize(Window, {Size = UDim2.new(0, Window.AbsoluteSize.X, 0, oldy)}, options.tween_time)
-					open_close.Parent:FindFirstChild("Base").Transparency = 0
-
-				end
-
-				open = not open
-				wait(options.tween_time)
-				canopen = true
-
-			end
-		end)
+	local function headerButton(name, asset, x)
+		local control = Instance.new("TextButton")
+		control.Name = name
+		control.Text = ""
+		control.Font = Enum.Font.GothamSemibold
+		control.TextSize = 18
+		control.TextColor3 = Color3.fromRGB(255, 255, 255)
+		control.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		control.BackgroundTransparency = 1
+		control.BorderSizePixel = 0
+        control.AutoButtonColor = false
+		control.Position = UDim2.new(1, x, 0, -4)
+		control.Size = UDim2.fromOffset(24, 24)
+		control.ZIndex = Window.ZIndex + 5
+		control.Parent = Bar
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.5, 0)
+		corner.Parent = control
+        local icon = Instance.new("ImageLabel")
+        icon.Name = "Icon"
+        icon.BackgroundTransparency = 1
+        icon.Image = asset
+        icon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+        icon.AnchorPoint = Vector2.new(0.5, 0.5)
+        icon.Position = UDim2.fromScale(0.5, 0.5)
+        icon.Size = UDim2.fromOffset(16, 16)
+        icon.ZIndex = control.ZIndex + 1
+        icon.Parent = control
+        local backgroundTween
+        local function setHovered(hovered)
+            if backgroundTween then backgroundTween:Cancel() end
+            local info = TweenInfo.new(hovered and 0.12 or 0.17, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            backgroundTween = TweenService:Create(control, info, {BackgroundTransparency = hovered and 0.82 or 1})
+            backgroundTween:Play()
+        end
+        runtime:Connect(control.MouseEnter, function() setHovered(true) end)
+        runtime:Connect(control.MouseLeave, function() setHovered(false) end)
+		return control
 	end
+
+	local Minimize = headerButton("Minimize", lucideMinimize, -62)
+	local Close = headerButton("Close", lucideX, -32)
+	local BottomResize = Instance.new("TextButton")
+	BottomResize.Name = "BottomResize"
+	BottomResize.Text = ""
+	BottomResize.BackgroundTransparency = 1
+	BottomResize.AnchorPoint = Vector2.new(0.5, 0)
+	BottomResize.Position = UDim2.new(0.5, 0, 1, 0)
+	BottomResize.Size = UDim2.new(0.36, 0, 0, 22)
+	BottomResize.ZIndex = Window.ZIndex + 6
+	BottomResize.Parent = Window
+	local Grip = Instance.new("Frame")
+	Grip.Name = "Grip"
+	Grip.BackgroundColor3 = Color3.fromRGB(150, 155, 158)
+	Grip.BorderSizePixel = 0
+	Grip.AnchorPoint = Vector2.new(0.5, 0.5)
+	Grip.Position = UDim2.fromScale(0.5, 0.5)
+	Grip.Size = UDim2.new(1, 0, 0, 4)
+	Grip.ZIndex = BottomResize.ZIndex
+	Grip.Parent = BottomResize
+	local GripCorner = Instance.new("UICorner")
+	GripCorner.CornerRadius = UDim.new(1, 0)
+	GripCorner.Parent = Grip
+
+    Resizer.Size = UDim2.fromOffset(40, 40)
+    Resizer.AnchorPoint = Vector2.new(0.5, 0.5)
+    Resizer.Position = UDim2.new(1, -8, 1, -8)
+    Resizer.ZIndex = Window.ZIndex + 6
+    local CornerImage = Instance.new("ImageLabel")
+    CornerImage.Name = "WindUIResize"
+    CornerImage.BackgroundTransparency = 1
+    CornerImage.Image = lucideIcon("windui-resize", "rbxassetid://120997033468887")
+    CornerImage.Size = UDim2.fromOffset(120, 120)
+    CornerImage.AnchorPoint = Vector2.new(190 / 420, 190 / 420)
+    CornerImage.Position = UDim2.new(0.5, -windowRadius, 0.5, -windowRadius)
+    CornerImage.ImageColor3 = options.main_color
+    CornerImage.ImageTransparency = 0.6
+    CornerImage.ZIndex = Resizer.ZIndex
+    CornerImage.Parent = Resizer
+
+    BottomResize.Position = UDim2.new(0.5, 0, 1, -2)
+    BottomResize.Size = UDim2.fromOffset(212, 16)
+    BottomResize.AutoButtonColor = false
+    Grip.Size = UDim2.fromOffset(200, 5.143)
+    Grip.BackgroundColor3 = options.main_color
+    Grip.BackgroundTransparency = 0.6
+    Grip.Position = UDim2.new(0.5, 0, 0, 6)
+    Grip.AnchorPoint = Vector2.new(0.5, 0)
+
+    runtime:Connect(Bar:GetPropertyChangedSignal("BackgroundColor3"), function()
+        CornerImage.ImageColor3 = Bar.BackgroundColor3
+        Grip.BackgroundColor3 = Bar.BackgroundColor3
+    end)
+
+    local hovered = {}
+    local gripTweens = {}
+    local function updateGrip(handle, active)
+        local held = gesture and gesture.Handle == handle
+        local visual = handle == Resizer and CornerImage or Grip
+        local property = handle == Resizer and "ImageTransparency" or "BackgroundTransparency"
+        local target = active and 0.35 or 0.6
+        local scale = held and 1.12 or active and 1.06 or 1
+        if gripTweens[handle] then gripTweens[handle]:Cancel() end
+        gripTweens[handle] = TweenService:Create(visual, TweenInfo.new(active and 0.12 or 0.17,
+            Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            [property] = target,
+            Size = handle == Resizer and UDim2.fromOffset(120 * scale, 120 * scale)
+                or UDim2.fromOffset(200 * scale, 5.143 * scale),
+        })
+        gripTweens[handle]:Play()
+    end
+
+	local function setMinimized(value, animated)
+		if not runtime.Alive then return end
+		endGesture()
+        minimized = value
+        HeaderSurface.Size = UDim2.new(1, 0, 0, value and 26 or 46)
+        HeaderCorner.CornerRadius = UDim.new(0, value and 10 or windowRadius)
+        HeaderClip.Visible = value
+        Bar.BackgroundTransparency = value and 1 or 0
+        Bar.Base.BackgroundTransparency = value and 1 or 0
+        Bar.Base.ImageTransparency = value and 1 or 0
+        Bar.Top.ImageTransparency = value and 1 or 0
+
+		Tabs.Visible = not value
+		TabSelection.Visible = not value and #TabSelection.TabButtons:GetChildren() > 1
+		Resizer.Visible = not value and resizeEnabled
+		Resizer.Active = not value and resizeEnabled
+		BottomResize.Visible = not value and resizeEnabled
+		Minimize.Icon.Image = value and lucideMaximize or lucideMinimize
+		Bar.Base.Visible = true
+		applySize(expandedSize, animated ~= false)
+	end
+
+	function window_data:Minimize(value)
+		setMinimized(value == nil and not minimized or value == true)
+	end
+	runtime:Connect(Minimize.Activated, function() setMinimized(not minimized) end)
+	runtime:Connect(Toggle.Activated, function() setMinimized(not minimized) end)
+	runtime:Connect(Close.Activated, function() library:Destroy() end)
+
+	local DragHandle = Instance.new("Frame")
+	DragHandle.Name = "DragHandle"
+	DragHandle.BackgroundTransparency = 1
+	DragHandle.Active = true
+	DragHandle.Size = UDim2.new(1, -104, 0, 26)
+	DragHandle.Position = UDim2.fromOffset(30, 0)
+	DragHandle.ZIndex = Window.ZIndex + 3
+	DragHandle.Parent = Window
+
+    local function startGesture(input, mode, surface)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if gesture then return end
+        if mode ~= "move" and mode ~= "pending" and (minimized or not resizeEnabled) then return end
+        gesture = {Input = input, Mode = mode, Start = Vector2.new(input.Position.X, input.Position.Y),
+            Size = expandedSize, Position = Window.Position, Surface = surface}
+        if surface then
+            gesture.Canvas = surface.CanvasPosition
+            gesture.WasScrollingEnabled = surface.ScrollingEnabled
+            surface.ScrollingEnabled = false
+        end
+        if mode == "both" or mode == "height" then
+            gesture.Handle = mode == "both" and Resizer or BottomResize
+            updateGrip(gesture.Handle, true)
+        end
+    end
+
+    local function contains(object, point)
+        local origin, size = object.AbsolutePosition, object.AbsoluteSize
+        return point.X >= origin.X and point.X <= origin.X + size.X
+            and point.Y >= origin.Y and point.Y <= origin.Y + size.Y
+    end
+
+    local function visibleAt(object, point)
+        local node = object
+        while node and node ~= Window.Parent do
+            if node:IsA("GuiObject") then
+                if not node.Visible then return false end
+                if node.ClipsDescendants and not contains(node, point) then return false end
+            end
+            node = node.Parent
+        end
+        return true
+    end
+
+    local scrollbars = {}
+    local scrollPointer
+    local function scrollbarPoint(input)
+        local point = Vector2.new(input.Position.X, input.Position.Y)
+        if imgui.IgnoreGuiInset then point = point + game:GetService("GuiService"):GetGuiInset() end
+        return point
+    end
+
+    local function overScrollbar(surface, point)
+        if surface.ScrollBarThickness <= 0 or not contains(surface, point) or not visibleAt(surface, point) then
+            return false
+        end
+        local origin, size = surface.AbsolutePosition, surface.AbsoluteSize
+        local thickness = surface.ScrollBarThickness + 2
+        local vertical = surface.ScrollingDirection ~= Enum.ScrollingDirection.X
+            and surface.AbsoluteCanvasSize.Y > surface.AbsoluteWindowSize.Y + 1
+        local horizontal = surface.ScrollingDirection ~= Enum.ScrollingDirection.Y
+            and surface.AbsoluteCanvasSize.X > surface.AbsoluteWindowSize.X + 1
+        local left = surface.VerticalScrollBarPosition == Enum.VerticalScrollBarPosition.Left
+        return vertical and (left and point.X <= origin.X + thickness
+            or not left and point.X >= origin.X + size.X - thickness)
+            or horizontal and point.Y >= origin.Y + size.Y - thickness
+    end
+
+    local function bindScrollbar(surface)
+        if not surface:IsA("ScrollingFrame") or scrollbars[surface] then return end
+        local state = {LastUsed = -math.huge, Active = false}
+        scrollbars[surface] = state
+        surface.ScrollBarImageColor3 = options.main_color
+        surface.ScrollBarImageTransparency = 0.8
+        runtime:Connect(surface:GetPropertyChangedSignal("CanvasPosition"), function()
+            state.LastUsed = os.clock()
+        end)
+        runtime:Connect(surface.Destroying, function() scrollbars[surface] = nil end)
+    end
+
+    for _, object in ipairs(Window:GetDescendants()) do bindScrollbar(object) end
+    runtime:Connect(Window.DescendantAdded, bindScrollbar)
+    runtime:Connect(Bar:GetPropertyChangedSignal("BackgroundColor3"), function()
+        for surface in pairs(scrollbars) do surface.ScrollBarImageColor3 = Bar.BackgroundColor3 end
+    end)
+
+    local function scrollbarInputBegan(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local point = scrollbarPoint(input)
+        for surface, state in pairs(scrollbars) do
+            if overScrollbar(surface, point) then state.Input = input end
+        end
+    end
+    local function scrollbarInputEnded(input)
+        for _, state in pairs(scrollbars) do
+            if state.Input and (state.Input == input
+                or state.Input.UserInputType == Enum.UserInputType.MouseButton1
+                    and input.UserInputType == Enum.UserInputType.MouseButton1) then
+                state.Input = nil
+                state.LastUsed = os.clock()
+            end
+        end
+    end
+    runtime:Connect(UIS.InputBegan, scrollbarInputBegan)
+    runtime:Connect(UIS.InputEnded, scrollbarInputEnded)
+    runtime:Connect(UIS.InputChanged, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            scrollPointer = scrollbarPoint(input)
+        end
+    end)
+    runtime:Connect(RS.Heartbeat, function()
+        local now = os.clock()
+        for surface, state in pairs(scrollbars) do
+            local active = state.Input ~= nil or now - state.LastUsed < 0.25
+                or scrollPointer ~= nil and overScrollbar(surface, scrollPointer)
+            if active ~= state.Active then
+                state.Active = active
+                if state.Tween then state.Tween:Cancel() end
+                state.Tween = TweenService:Create(surface, TweenInfo.new(active and 0.1 or 0.17,
+                    Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    ScrollBarImageTransparency = active and 0.35 or 0.8,
+                })
+                state.Tween:Play()
+            end
+        end
+    end)
+
+    local function overControl(surface, point)
+        for _, node in ipairs(surface:GetDescendants()) do
+            if node:IsA("GuiObject") and (node:IsA("GuiButton") or node:IsA("TextBox")
+                or node:IsA("ScrollingFrame") or node.Name == "Slider" or node.Name == "Palette"
+                or node.Name == "Saturation") and contains(node, point) and visibleAt(node, point) then
+                return true
+            end
+        end
+        local inset = surface.ScrollBarThickness
+        if surface.ScrollingDirection == Enum.ScrollingDirection.Y then
+            return surface.AbsoluteCanvasSize.Y > surface.AbsoluteWindowSize.Y
+                and point.X >= surface.AbsolutePosition.X + surface.AbsoluteSize.X - inset - 2
+        end
+        return surface.AbsoluteCanvasSize.X > surface.AbsoluteWindowSize.X
+            and point.Y >= surface.AbsolutePosition.Y + surface.AbsoluteSize.Y - inset - 2
+    end
+
+    contentSurfaces[TabSelection.TabButtons] = true
+    runtime:Connect(UIS.InputBegan, function(input)
+        if gesture or minimized or dropdown_open then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local point = Vector2.new(input.Position.X, input.Position.Y)
+        if imgui.IgnoreGuiInset then point = point + game:GetService("GuiService"):GetGuiInset() end
+        for surface in pairs(contentSurfaces) do
+            if surface.Parent and contains(surface, point) and visibleAt(surface, point)
+                and not overControl(surface, point) then
+                startGesture(input, "pending", surface)
+                return
+            end
+        end
+    end)
+    runtime:Connect(DragHandle.InputBegan, function(input) startGesture(input, "move") end)
+    runtime:Connect(Title.InputBegan, function(input) startGesture(input, "move") end)
+    runtime:Connect(Resizer.InputBegan, function(input) startGesture(input, "both") end)
+    runtime:Connect(BottomResize.InputBegan, function(input) startGesture(input, "height") end)
+    local function updateGesture(input)
+        if not gesture then return end
+        local touch = gesture.Input.UserInputType == Enum.UserInputType.Touch
+        if (touch and input ~= gesture.Input)
+            or (not touch and input.UserInputType ~= Enum.UserInputType.MouseMovement) then return end
+        local delta = Vector2.new(input.Position.X, input.Position.Y) - gesture.Start
+        if gesture.Mode == "pending" then
+            if delta.Magnitude < 6 then return end
+            local surface = gesture.Surface
+            local xOverflow = surface.ScrollingDirection ~= Enum.ScrollingDirection.Y
+                and surface.AbsoluteCanvasSize.X > surface.AbsoluteWindowSize.X + 1
+            local yOverflow = surface.ScrollingDirection ~= Enum.ScrollingDirection.X
+                and surface.AbsoluteCanvasSize.Y > surface.AbsoluteWindowSize.Y + 1
+            gesture.Mode = xOverflow and math.abs(delta.X) > math.abs(delta.Y) and "scrollX"
+                or yOverflow and math.abs(delta.Y) >= math.abs(delta.X) and "scrollY" or "move"
+        end
+        if gesture.Mode == "move" then
+            Window.Position = UDim2.new(gesture.Position.X.Scale, gesture.Position.X.Offset + delta.X,
+                gesture.Position.Y.Scale, gesture.Position.Y.Offset + delta.Y)
+        elseif gesture.Mode == "scrollX" or gesture.Mode == "scrollY" then
+            local surface = gesture.Surface
+            local maxX = math.max(0, surface.AbsoluteCanvasSize.X - surface.AbsoluteWindowSize.X)
+            local maxY = math.max(0, surface.AbsoluteCanvasSize.Y - surface.AbsoluteWindowSize.Y)
+            surface.CanvasPosition = Vector2.new(
+                math.clamp(gesture.Canvas.X - (gesture.Mode == "scrollX" and delta.X or 0), 0, maxX),
+                math.clamp(gesture.Canvas.Y - (gesture.Mode == "scrollY" and delta.Y or 0), 0, maxY))
+        else
+            applySize(UDim2.fromOffset(gesture.Size.X.Offset + (gesture.Mode == "both" and delta.X or 0),
+                gesture.Size.Y.Offset + delta.Y))
+        end
+    end
+    runtime:Connect(UIS.InputChanged, updateGesture)
+    runtime:Connect(UIS.InputEnded, function(input)
+        if gesture and (input == gesture.Input or (gesture.Input.UserInputType == Enum.UserInputType.MouseButton1
+            and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+            local handle = gesture.Handle
+            endGesture()
+            if handle then updateGrip(handle, hovered[handle] == true) end
+        end
+    end)
+    for _, handle in ipairs({Resizer, BottomResize}) do
+        runtime:Connect(handle.MouseEnter, function()
+            hovered[handle] = true
+            if not gesture or gesture.Handle == handle then updateGrip(handle, true) end
+        end)
+        runtime:Connect(handle.MouseLeave, function()
+            hovered[handle] = nil
+            if not gesture or gesture.Handle ~= handle then updateGrip(handle, false) end
+        end)
+    end
+    runtime:AddCleanup(endGesture)
+
+	runtime:Connect(Title:GetPropertyChangedSignal("Text"), function() applySize(expandedSize) end)
+	applySize(expandedSize)
+	setMinimized(false, false)
+
+
+    local themeDefaults = {
+        MainColor = options.main_color,
+        BackgroundColor = Window.BackgroundColor3,
+        TextColor = Color3.new(1, 1, 1),
+        Font = Enum.Font.GothamSemibold,
+        HeadingSize = 16, LabelSize = 14, ControlSize = 14, Spacing = 5,
+    }
+    local theme = table.clone(themeDefaults)
+    local labels = {}
+    local entries = {}
+    local entryOrder = {}
+    local keyCounts = {}
+    local themeListeners = {}
+    window_data.Frame = Window
+    window_data.Runtime = runtime
+    window_data.ConfigControls = entries
+
+    local function renderLabel(label)
+        if not label.Parent then return end
+        local busy = label:GetAttribute("EleriumRendering")
+        if busy then return end
+        label:SetAttribute("EleriumRendering", true)
+        local width = math.max(1, label.AbsoluteSize.X)
+        local paragraphY = 0
+        local index = 0
+        for paragraph in string.gmatch(label.Text:gsub("\r\n", "\n"):gsub("\r", "\n") .. "\n", "(.-)\n") do
+            index = index + 1
+            local line = label:FindFirstChild("Line" .. index)
+            if not line then
+                line = Instance.new("TextLabel")
+                line.Name = "Line" .. index
+                line.BackgroundTransparency = 1
+                line.TextWrapped = true
+                line.TextXAlignment = Enum.TextXAlignment.Left
+                line.TextYAlignment = Enum.TextYAlignment.Center
+                line:SetAttribute("EleriumLabelLine", true)
+                line.Parent = label
+            end
+            line.Text = paragraph
+            line.Font = label.Font
+            line.TextSize = label.TextSize
+            line.TextColor3 = label.TextColor3
+            line.RichText = label.RichText
+            line.ZIndex = label.ZIndex
+            local measured = game:GetService("TextService"):GetTextSize(
+                paragraph == "" and " " or paragraph, label.TextSize, label.Font, Vector2.new(width, 100000))
+            local height = math.max(label.TextSize + 6, measured.Y)
+            line.Position = UDim2.fromOffset(0, paragraphY)
+            line.Size = UDim2.new(1, 0, 0, height)
+            paragraphY = paragraphY + height + theme.Spacing
+        end
+        for _, child in ipairs(label:GetChildren()) do
+            local number = tonumber(child.Name:match("^Line(%d+)$"))
+            if number and number > index then child:Destroy() end
+        end
+        label.Size = UDim2.new(1, -10, 0, math.max(label.TextSize + 6, paragraphY - theme.Spacing))
+        label:SetAttribute("EleriumRendering", false)
+    end
+
+    local function addTextLabel(parent, text, heading)
+        local object = prefabs.Label:Clone()
+        object.Name = heading and "Heading" or "Label"
+        object:SetAttribute("EleriumRole", heading and "Heading" or "Label")
+        object.Text = tostring(text or "")
+        object.Font = theme.Font
+        object.TextSize = heading and theme.HeadingSize or theme.LabelSize
+        object.TextColor3 = theme.TextColor
+        object.TextTransparency = 1
+        object.AutomaticSize = Enum.AutomaticSize.None
+        object.TextWrapped = false
+        object.Size = UDim2.new(1, -10, 0, object.TextSize + 6)
+        object.ZIndex = object.ZIndex + windows * 10
+        object.Parent = parent
+        labels[object] = true
+        for _, property in ipairs({"Text", "TextSize", "Font", "TextColor3", "AbsoluteSize", "RichText", "ZIndex"}) do
+            runtime:Connect(object:GetPropertyChangedSignal(property), function() renderLabel(object) end)
+        end
+        runtime:Connect(object.Destroying, function() labels[object] = nil end)
+        renderLabel(object)
+        return object
+    end
+
+    local function styleObject(object, recolor)
+        if object:IsA("UIListLayout") and object.Parent ~= TabSelection.TabButtons then
+            object.Padding = UDim.new(0, theme.Spacing)
+        end
+        if not object:IsA("GuiObject") or object:GetAttribute("EleriumLabelLine") then return end
+        if not object:IsDescendantOf(Tabs) and not object:IsDescendantOf(TabSelection) then return end
+        if not object:GetAttribute("EleriumRole") and object.Size.Y.Scale == 0
+            and object.Size.Y.Offset >= 20 and object.Size.Y.Offset <= 36
+            and not object:IsA("ScrollingFrame") and not object:GetAttribute("EleriumFixedSize")
+            and (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")
+                or object.Parent and object.Parent:FindFirstChildOfClass("UIListLayout")) then
+            object.Size = UDim2.new(object.Size.X.Scale, object.Size.X.Offset, 0, math.max(20, theme.ControlSize + 6))
+        end
+        if not (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")) then return end
+        if object:GetAttribute("EleriumRole") then return end
+        if object:FindFirstAncestor("Console") then return end
+        local previewFont = object:GetAttribute("EleriumFontPreview")
+        object.Font = previewFont and Enum.Font[previewFont] or theme.Font
+        object.TextSize = theme.ControlSize
+        if recolor then object.TextColor3 = theme.TextColor end
+        if object:IsA("TextButton") and not object:GetAttribute("EleriumFixedSize")
+            and object.Size.X.Scale == 0 and object.Size.X.Offset > 30 then
+            local measured = game:GetService("TextService"):GetTextSize(object.Text, object.TextSize,
+                object.Font, Vector2.new(100000, 100000))
+            object.Size = UDim2.new(0, measured.X + 15, object.Size.Y.Scale, object.Size.Y.Offset)
+        end
+    end
+
+    function window_data:GetTheme()
+        return table.clone(theme)
+    end
+    function window_data:GetDefaultTheme()
+        return table.clone(themeDefaults)
+    end
+    function window_data:OnThemeChanged(callback)
+        table.insert(themeListeners, callback)
+        return callback
+    end
+    function window_data:SetTheme(changes)
+        if not runtime.Alive then return end
+        assert(type(changes) == "table", "Theme must be a table")
+        local staged = table.clone(theme)
+        for key, value in pairs(changes) do
+            if themeDefaults[key] ~= nil then
+                if key:find("Color") then
+                    assert(typeof(value) == "Color3", key .. " must be Color3")
+                elseif key == "Font" then
+                    if type(value) == "string" then value = Enum.Font[value] end
+                    assert(typeof(value) == "EnumItem" and value.EnumType == Enum.Font, "Invalid font")
+                else
+                    assert(type(value) == "number" and value == value and value < math.huge, "Invalid " .. key)
+                    value = math.clamp(math.floor(value), key == "Spacing" and 0 or 10, key == "Spacing" and 20 or 30)
+                end
+                staged[key] = value
+            end
+        end
+        theme = staged
+        options.main_color = theme.MainColor
+        Window.BackgroundColor3 = theme.BackgroundColor
+        Window.ImageColor3 = theme.BackgroundColor
+        Bar.BackgroundColor3 = theme.MainColor
+        for object in pairs(labels) do
+            object.Font = theme.Font
+            object.TextSize = object:GetAttribute("EleriumRole") == "Heading" and theme.HeadingSize or theme.LabelSize
+            if changes.TextColor then object.TextColor3 = theme.TextColor end
+            renderLabel(object)
+        end
+        for _, object in ipairs(Window:GetDescendants()) do styleObject(object, changes.TextColor ~= nil) end
+        for _, callback in ipairs(themeListeners) do runtime:Spawn(callback, self:GetTheme()) end
+    end
+    function window_data:ResetTheme()
+        self:SetTheme(themeDefaults)
+    end
+    runtime:Connect(Window.DescendantAdded, function(object)
+        runtime:Defer(function() if object.Parent then styleObject(object, false) end end)
+    end)
+
+    local function decorateTab(tabData, content, tabName)
+        function tabData:SetConfigIgnored(ignored)
+            content:SetAttribute("EleriumIgnoreConfig", ignored == true)
+        end
+        local methods = {"AddSwitch", "AddSlider", "AddDropdown", "AddColorPicker", "AddTextBox", "AddKeybind"}
+        for _, method in ipairs(methods) do
+            local original = tabData[method]
+            tabData[method] = function(self, ...)
+                local args = table.pack(...)
+                local callbackIndex = method == "AddColorPicker" and 1 or 2
+                local callback = args[callbackIndex]
+                args.n = math.max(args.n, callbackIndex)
+                local current
+                if method ~= "AddKeybind" then
+                    args[callbackIndex] = function(value, ...)
+                        current = value
+                        if type(callback) == "function" then return callback(value, ...) end
+                    end
+                end
+                local returned = table.pack(original(self, table.unpack(args, 1, args.n)))
+                local data, node = returned[1], returned[2]
+                if typeof(data) == "Instance" then node = data end
+                local title = method == "AddColorPicker" and "Color" or tostring(args[1])
+                local baseKey = tabName .. "/" .. method .. "/" .. title
+                keyCounts[baseKey] = (keyCounts[baseKey] or 0) + 1
+                local key = baseKey .. "/" .. keyCounts[baseKey]
+                local entry = {Kind = method, Tab = content, Node = node, Key = key}
+                if method == "AddSwitch" then current = false end
+                if method == "AddKeybind" then
+                    current = type(args[3]) == "table" and args[3].standard or Enum.KeyCode.RightShift
+                    local setter = data.SetKeybind
+                    data.SetKeybind = function(control, value)
+                        current = value
+                        return setter(control, value)
+                    end
+                end
+                if method == "AddColorPicker" and current == nil then current = node.Sample.ImageColor3 end
+                function entry:Get()
+                    if method == "AddTextBox" then return node.Text end
+                    return current
+                end
+                function entry:Set(value)
+                    if method == "AddSwitch" then assert(type(value) == "boolean", "Invalid switch"); data:Set(value)
+                    elseif method == "AddSlider" then assert(type(value) == "number", "Invalid slider"); data:Set(value)
+                    elseif method == "AddColorPicker" then assert(typeof(value) == "Color3", "Invalid color"); data:Set(value)
+                    elseif method == "AddKeybind" then
+                        assert(typeof(value) == "EnumItem" and value.EnumType == Enum.KeyCode, "Invalid key")
+                        data:SetKeybind(value)
+                    elseif method == "AddTextBox" then
+                        assert(type(value) == "string", "Invalid textbox")
+                        node.Text = value
+                        if value ~= "" and type(callback) == "function" then callback(value) end
+                    elseif method == "AddDropdown" then
+                        assert(type(value) == "string", "Invalid dropdown")
+                        local found = false
+                        for _, option in ipairs(node.Box.Objects:GetChildren()) do
+                            if option:IsA("TextButton") and option.Text == value then found = true end
+                        end
+                        assert(found, "Dropdown option no longer available: " .. value)
+                        node.Text = "      [ " .. value .. " ]"
+                        current = value
+                        if type(callback) == "function" then callback(value) end
+                    end
+                end
+                if type(data) == "table" then
+                    function data:GetValue() return entry:Get() end
+                    function data:SetValue(value) return entry:Set(value) end
+                end
+                entries[key] = entry
+                table.insert(entryOrder, entry)
+                if type(data) == "table" then
+                    function data:SetConfigKey(newKey)
+                        assert(type(newKey) == "string" and newKey ~= "", "Invalid config key")
+                        assert(not entries[newKey] or entries[newKey] == entry, "Duplicate config key")
+                        entries[entry.Key] = nil
+                        entry.Key = newKey
+                        entries[newKey] = entry
+                        return self
+                    end
+                end
+                return table.unpack(returned, 1, returned.n)
+            end
+        end
+    end
+
+    function window_data:RegisterConfig(key, getter, setter)
+        assert(type(key) == "string" and key ~= "" and not entries[key], "Duplicate or invalid config key")
+        assert(type(getter) == "function" and type(setter) == "function", "Config binding requires get/set functions")
+        local entry = {Key = key, Kind = "Custom", Get = function() return getter() end,
+            Set = function(_, value) return setter(value) end}
+        entries[key] = entry
+        table.insert(entryOrder, entry)
+        return entry
+    end
+
+    function window_data:GetConfigValues()
+        local values = {}
+        for key, entry in pairs(entries) do
+            if not entry.Tab or not entry.Tab:GetAttribute("EleriumIgnoreConfig") then values[key] = entry:Get() end
+        end
+        return values
+    end
+    function window_data:ApplyConfigValues(values)
+        assert(runtime.Alive, "Window closed")
+        assert(type(values) == "table", "Invalid config values")
+        local failures = {}
+        for _, switches in ipairs({false, true}) do
+            for _, entry in ipairs(entryOrder) do
+                if (entry.Kind == "AddSwitch") == switches and values[entry.Key] ~= nil
+                    and (not entry.Tab or not entry.Tab:GetAttribute("EleriumIgnoreConfig")) then
+                    local ok, err = pcall(entry.Set, entry, values[entry.Key])
+                    if not ok then table.insert(failures, entry.Key .. ": " .. tostring(err)) end
+                end
+            end
+        end
+        return failures
+    end
 
 	do
 		local tabs = Window:FindFirstChild("Tabs")
 		local tab_selection = Window:FindFirstChild("TabSelection")
 		local tab_buttons = tab_selection:FindFirstChild("TabButtons")
+        local buttonLayout = tab_buttons:FindFirstChildOfClass("UIListLayout")
+        local function updateTabCanvas()
+            tab_buttons.CanvasSize = UDim2.fromOffset(buttonLayout.AbsoluteContentSize.X, 0)
+        end
+        runtime:Connect(buttonLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateTabCanvas)
+        updateTabCanvas()
+
 
 		do
 			function window_data:AddTab(tab_name)
@@ -1385,6 +2082,16 @@ function library:AddWindow(title, options)
 				local new_tab = prefabs:FindFirstChild("Tab"):Clone()
 				new_tab.Parent = tabs
 				new_tab.ZIndex = new_tab.ZIndex + (windows * 10)
+                new_tab.Name = tab_name
+                contentSurfaces[new_tab] = true
+                local contentLayout = new_tab:FindFirstChildOfClass("UIListLayout")
+                local function updateContentCanvas()
+                    new_tab.CanvasSize = UDim2.fromOffset(0, contentLayout.AbsoluteContentSize.Y + 10)
+                end
+                runtime:Connect(contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
+                runtime:Connect(new_tab:GetPropertyChangedSignal("AbsoluteSize"), updateContentCanvas)
+                updateContentCanvas()
+
 
 				local function show()
 					if dropdown_open then return end
@@ -1400,7 +2107,15 @@ function library:AddWindow(title, options)
 
 					Resize(new_button, {Size = UDim2.new(0, new_button.AbsoluteSize.X, 0, 25)}, options.tween_time)
 					new_button:GetChildren()[1].ImageColor3 = Color3.fromRGB(73, 75, 79)
-					new_tab.Visible = true
+                    if minimized then setMinimized(false) end
+                    new_tab.Visible = true
+                    local left = new_button.AbsolutePosition.X - tab_buttons.AbsolutePosition.X + tab_buttons.CanvasPosition.X
+                    local visibleX = tab_buttons.CanvasPosition.X
+                    if left < visibleX then
+                        tab_buttons.CanvasPosition = Vector2.new(left, 0)
+                    elseif left + new_button.AbsoluteSize.X > visibleX + tab_buttons.AbsoluteSize.X then
+                        tab_buttons.CanvasPosition = Vector2.new(left + new_button.AbsoluteSize.X - tab_buttons.AbsoluteSize.X, 0)
+                    end
 				end
 
 				runtime:Connect(new_button.MouseButton1Click, function()
@@ -1413,20 +2128,12 @@ function library:AddWindow(title, options)
 
 				do
 
-					function tab_data:AddLabel(label_text)
-						label_text = tostring(label_text or "New Label")
-
-						local label = prefabs:FindFirstChild("Label"):Clone()
-
-						label.Parent = new_tab
-						label.Text = label_text
-						label.Size = UDim2.new(1, -10, 0, 20)
-						label.TextWrapped = true
-						label.AutomaticSize = Enum.AutomaticSize.Y
-						label.ZIndex = label.ZIndex + (windows * 10)
-
-						return label
-					end
+                    function tab_data:AddLabel(text)
+                        return addTextLabel(new_tab, text, false)
+                    end
+                    function tab_data:AddHeading(text)
+                        return addTextLabel(new_tab, text, true)
+                    end
 
 					function tab_data:AddButton(button_text, callback)
 						button_text = tostring(button_text or "New Button")
@@ -1533,112 +2240,100 @@ function library:AddWindow(title, options)
 						return textbox
 					end
 
-					function tab_data:AddSlider(slider_text, callback, slider_options)
-						local slider_data = {}
+                    function tab_data:AddSlider(slider_text, callback, slider_options)
+                        local slider_data = {}
+                        callback = type(callback) == "function" and callback or function() end
+                        slider_options = type(slider_options) == "table" and slider_options or {}
+                        local minimum = tonumber(slider_options.min) or 0
+                        local maximum = math.max(minimum, tonumber(slider_options.max) or 100)
+                        local step = math.max(0.001, tonumber(slider_options.step) or 1)
+                        local commitOnRelease = slider_options.commitOnRelease ~= false
+                        local slider = prefabs.Slider:Clone()
+                        slider.Active = true
+                        slider.Parent = new_tab
+                        slider.ZIndex = slider.ZIndex + windows * 10
+                        local title, indicator, valueLabel = slider.Title, slider.Indicator, slider.Value
+                        title.Text = tostring(slider_text or "New Slider")
+                        for _, object in ipairs({title, indicator, valueLabel}) do object.ZIndex = object.ZIndex + windows * 10 end
+                        local selected = minimum
+                        local committed = minimum
+                        local dragInput, scrollParent, previousScrolling
+                        local initialX, initialWidth, dragStartValue
 
-						slider_text = tostring(slider_text or "New Slider")
-						callback = typeof(callback) == "function" and callback or function()end
-						slider_options = typeof(slider_options) == "table" and slider_options or {}
-						slider_options = {
-							["min"] = slider_options.min or 0,
-							["max"] = slider_options.max or 100,
-							["readonly"] = slider_options.readonly or false,
-						}
-
-						local slider = prefabs:FindFirstChild("Slider"):Clone()
-
-						slider.Parent = new_tab
-						slider.ZIndex = slider.ZIndex + (windows * 10)
-
-						local title = slider:FindFirstChild("Title")
-						local indicator = slider:FindFirstChild("Indicator")
-						local value = slider:FindFirstChild("Value")
-						title.ZIndex = title.ZIndex + (windows * 10)
-						indicator.ZIndex = indicator.ZIndex + (windows * 10)
-						value.ZIndex = value.ZIndex + (windows * 10)
-
-						title.Text = slider_text
-
-						do
-							local Entered = false
-							runtime:Connect(slider.MouseEnter, function()
-								Entered = true
-								Window.Draggable = false
-							end)
-							runtime:Connect(slider.MouseLeave, function()
-								Entered = false
-								Window.Draggable = true
-							end)
-
-							local Held = false
-							runtime:Connect(UIS.InputBegan, function(inputObject)
-								if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-									Held = true
-
-									runtime:Spawn(function()
-										if Entered and not slider_options.readonly then
-											while Held and (not dropdown_open) do
-												local mouse_location = gMouse()
-												local x = (slider.AbsoluteSize.X - (slider.AbsoluteSize.X - ((mouse_location.X - slider.AbsolutePosition.X)) + 1)) / slider.AbsoluteSize.X
-
-												local min = 0
-												local max = 1
-
-												local size = min
-												if x >= min and x <= max then
-													size = x
-												elseif x < min then
-													size = min
-												elseif x > max then
-													size = max
-												end
-
-												Resize(indicator, {Size = UDim2.new(size or min, 0, 0, 20)}, options.tween_time)
-												local p = math.floor((size or min) * 100)
-
-												local maxv = slider_options.max
-												local minv = slider_options.min
-												local diff = maxv - minv
-
-												local sel_value = math.floor(((diff / 100) * p) + minv)
-
-												value.Text = tostring(sel_value)
-												pcall(callback, sel_value)
-
-												RS.Heartbeat:Wait()
-											end
-										end
-									end)
-								end
-							end)
-							runtime:Connect(UIS.InputEnded, function(inputObject)
-								if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-									Held = false
-								end
-							end)
-
-							function slider_data:Set(new_value)
-								new_value = tonumber(new_value) or 0
-								new_value = (((new_value >= 0 and new_value <= 100) and new_value) / 100)
-
-								Resize(indicator, {Size = UDim2.new(new_value or 0, 0, 0, 20)}, options.tween_time)
-								local p = math.floor((new_value or 0) * 100)
-
-								local maxv = slider_options.max
-								local minv = slider_options.min
-								local diff = maxv - minv
-
-								local sel_value = math.floor(((diff / 100) * p) + minv)
-
-								value.Text = tostring(sel_value)
-								pcall(callback, sel_value)
-							end
-
-							slider_data:Set(slider_options["min"])
-						end
-
-						return slider_data, slider
-					end
+                        local function normalize(value)
+                            value = tonumber(value) or minimum
+                            if value ~= value then value = minimum end
+                            value = math.clamp(value, minimum, maximum)
+                            value = minimum + math.floor((value - minimum) / step + 0.5) * step
+                            return math.clamp(value, minimum, maximum)
+                        end
+                        local function render(value)
+                            selected = normalize(value)
+                            local fraction = maximum == minimum and 0 or (selected - minimum) / (maximum - minimum)
+                            indicator.Size = UDim2.new(fraction, 0, 1, 0)
+                            valueLabel.Text = string.format("%.6g", selected)
+                        end
+                        local function notify()
+                            committed = selected
+                            callback(selected)
+                        end
+                        local function updateFromInput(input)
+                            local fraction = math.clamp((input.Position.X - initialX) / initialWidth, 0, 1)
+                            local before = selected
+                            render(minimum + fraction * (maximum - minimum))
+                            if selected ~= before and not commitOnRelease then notify() end
+                        end
+                        local function finishDrag(commit)
+                            if not dragInput then return end
+                            dragInput = nil
+                            if scrollParent and scrollParent.Parent then scrollParent.ScrollingEnabled = previousScrolling end
+                            scrollParent = nil
+                            slider:SetAttribute("EleriumDragging", false)
+                            if commitOnRelease then
+                                if commit then notify() else render(dragStartValue) end
+                            end
+                        end
+                        local function beginDrag(input)
+                            if dragInput or slider_options.readonly or dropdown_open then return end
+                            if input.UserInputType ~= Enum.UserInputType.MouseButton1
+                                and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                            dragInput = input
+                            initialX, initialWidth = slider.AbsolutePosition.X, math.max(1, slider.AbsoluteSize.X)
+                            dragStartValue = selected
+                            scrollParent = slider:FindFirstAncestorWhichIsA("ScrollingFrame")
+                            if scrollParent then
+                                previousScrolling = scrollParent.ScrollingEnabled
+                                scrollParent.ScrollingEnabled = false
+                            end
+                            slider:SetAttribute("EleriumDragging", true)
+                            updateFromInput(input)
+                        end
+                        local function changeDrag(input)
+                            if not dragInput then return end
+                            local touch = dragInput.UserInputType == Enum.UserInputType.Touch
+                            if touch and input ~= dragInput then return end
+                            if not touch and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+                            if input.UserInputState == Enum.UserInputState.Cancel then finishDrag(false); return end
+                            updateFromInput(input)
+                        end
+                        local function endDrag(input)
+                            if dragInput and (input == dragInput or dragInput.UserInputType == Enum.UserInputType.MouseButton1
+                                and input.UserInputType == Enum.UserInputType.MouseButton1) then finishDrag(true) end
+                        end
+                        runtime:Connect(slider.InputBegan, beginDrag)
+                        runtime:Connect(UIS.InputChanged, changeDrag)
+                        runtime:Connect(UIS.InputEnded, endDrag)
+                        runtime:Connect(UIS.WindowFocusReleased, function() finishDrag(false) end)
+                        runtime:AddCleanup(function() finishDrag(false) end)
+                        function slider_data:Set(value)
+                            if not runtime.Alive then return end
+                            render(value)
+                            notify()
+                        end
+                        function slider_data:IsDragging() return dragInput ~= nil end
+                        slider_data:Set(minimum)
+                        return slider_data, slider
+                    end
 
 					function tab_data:AddKeybind(keybind_name, callback, keybind_options)
 						local keybind_data = {}
@@ -1702,7 +2397,7 @@ function library:AddWindow(title, options)
 							keybind_data:SetKeybind(a.KeyCode)
 						end)
 
-						return keybind_data, keybind
+						return keybind_data, input.Parent
 					end
 
 					function tab_data:AddDropdown(dropdown_name, callback)
@@ -1729,9 +2424,9 @@ function library:AddWindow(title, options)
 						runtime:Connect(dropdown.MouseButton1Click, function()
 							open = not open
 
-							local len = (#objects:GetChildren() - 1) * 20
+							local len = (#objects:GetChildren() - 1) * math.max(20, theme.ControlSize + 6)
 							if #objects:GetChildren() - 1 >= 10 then
-								len = 10 * 20
+								len = 10 * math.max(20, theme.ControlSize + 6)
 								objects.CanvasSize = UDim2.new(0, 0, (#objects:GetChildren() - 1) * 0.1, 0)
 							end
 
@@ -1803,9 +2498,9 @@ function library:AddWindow(title, options)
 							end)
 
 							if open then
-								local len = (#objects:GetChildren() - 1) * 20
+								local len = (#objects:GetChildren() - 1) * math.max(20, theme.ControlSize + 6)
 								if #objects:GetChildren() - 1 >= 10 then
-									len = 10 * 20
+									len = 10 * math.max(20, theme.ControlSize + 6)
 									objects.CanvasSize = UDim2.new(0, 0, (#objects:GetChildren() - 1) * 0.1, 0)
 								end
 								Resize(box, {Size = UDim2.new(1, 0, 0, len)}, options.tween_time)
@@ -1884,115 +2579,193 @@ function library:AddWindow(title, options)
 						return dropdown_data, dropdown
 					end
 
-					function tab_data:AddColorPicker(callback)
-						local color_picker_data = {}
-						callback = typeof(callback) == "function" and callback or function()end
-
-						local color_picker = prefabs:FindFirstChild("ColorPicker"):Clone()
-
-						color_picker.Parent = new_tab
-						color_picker.ZIndex = color_picker.ZIndex + (windows * 10)
-
-						local palette = color_picker:FindFirstChild("Palette")
-						local sample = color_picker:FindFirstChild("Sample")
-						local saturation = color_picker:FindFirstChild("Saturation")
-						palette.ZIndex = palette.ZIndex + (windows * 10)
-						sample.ZIndex = sample.ZIndex + (windows * 10)
-						saturation.ZIndex = saturation.ZIndex + (windows * 10)
-
-						do
-							local h = 0
-							local s = 1
-							local v = 1
-
-							local function update()
-								local color = Color3.fromHSV(h, s, v)
-								sample.ImageColor3 = color
-								saturation.ImageColor3 = Color3.fromHSV(h, 1, 1)
-								pcall(callback, color)
-							end
-
-							do
-								local color = Color3.fromHSV(h, s, v)
-								sample.ImageColor3 = color
-								saturation.ImageColor3 = Color3.fromHSV(h, 1, 1)
-							end
-
-							local Entered1, Entered2 = false, false
-							runtime:Connect(palette.MouseEnter, function()
-								Window.Draggable = false
-								Entered1 = true
-							end)
-							runtime:Connect(palette.MouseLeave, function()
-								Window.Draggable = true
-								Entered1 = false
-							end)
-							runtime:Connect(saturation.MouseEnter, function()
-								Window.Draggable = false
-								Entered2 = true
-							end)
-							runtime:Connect(saturation.MouseLeave, function()
-								Window.Draggable = true
-								Entered2 = false
-							end)
-
-							local palette_indicator = palette:FindFirstChild("Indicator")
-							local saturation_indicator = saturation:FindFirstChild("Indicator")
-							palette_indicator.ZIndex = palette_indicator.ZIndex + (windows * 10)
-							saturation_indicator.ZIndex = saturation_indicator.ZIndex + (windows * 10)
-
-							local Held = false
-							runtime:Connect(UIS.InputBegan, function(inputObject)
-								if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-									Held = true
-
-									runtime:Spawn(function()
-										while Held and Entered1 and (not dropdown_open) do
-											local mouse_location = gMouse()
-
-											local x = ((palette.AbsoluteSize.X - (mouse_location.X - palette.AbsolutePosition.X)) + 1)
-											local y = ((palette.AbsoluteSize.Y - (mouse_location.Y - palette.AbsolutePosition.Y)) + 1.5)
-
-											local color = Color3.fromHSV(x / 100, y / 100, 0)
-											h = x / 100
-											s = y / 100
-
-											Resize(palette_indicator, {Position = UDim2.new(0, math.abs(x - 100) - (palette_indicator.AbsoluteSize.X / 2), 0, math.abs(y - 100) - (palette_indicator.AbsoluteSize.Y / 2))}, options.tween_time)
-
-											update()
-											RS.Heartbeat:Wait()
-										end
-
-										while Held and Entered2 and (not dropdown_open) do
-											local mouse_location = gMouse()
-											local y = ((palette.AbsoluteSize.Y - (mouse_location.Y - palette.AbsolutePosition.Y)) + 1.5)
-											v = y / 100
-
-											Resize(saturation_indicator, {Position = UDim2.new(0, 0, 0, math.abs(y - 100))}, options.tween_time)
-
-											update()
-											RS.Heartbeat:Wait()
-										end
-									end)
-								end
-							end)
-							runtime:Connect(UIS.InputEnded, function(inputObject)
-								if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-									Held = false
-								end
-							end)
-
-							function color_picker_data:Set(color)
-								color = typeof(color) == "Color3" and color or Color3.new(1, 1, 1)
-								local h2, s2, v2 = rgbtohsv(color.r * 255, color.g * 255, color.b * 255)
-								sample.ImageColor3 = color
-								saturation.ImageColor3 = Color3.fromHSV(h2, 1, 1)
-								pcall(callback, color)
-							end
-						end
-
-						return color_picker_data, color_picker
-					end
+                    function tab_data:AddColorPicker(callback)
+                        callback = type(callback) == "function" and callback or function() end
+                        local data = {}
+                        local root = Instance.new("ImageLabel")
+                        root.Name = "ColorPicker"
+                        root.BackgroundTransparency = 1
+                        root.ImageTransparency = 1
+                        root.Size = UDim2.new(1, 0, 0, 28)
+                        root.ZIndex = Window.ZIndex + windows * 10 + 1
+                        root:SetAttribute("EleriumFixedSize", true)
+                        root.Parent = new_tab
+                        local function frame(name, parent, position, size, color)
+                            local object = Instance.new("Frame")
+                            object.Name = name
+                            object.BorderSizePixel = 0
+                            object.BackgroundColor3 = color or Color3.new(1, 1, 1)
+                            object.Position = position
+                            object.Size = size
+                            object.ZIndex = root.ZIndex + 1
+                            object.Parent = parent
+                            return object
+                        end
+                        local function corner(parent, radius)
+                            local object = Instance.new("UICorner")
+                            object.CornerRadius = UDim.new(0, radius)
+                            object.Parent = parent
+                        end
+                        local sample = Instance.new("ImageLabel")
+                        sample.Name = "Sample"
+                        sample.ImageTransparency = 1
+                        sample.BorderSizePixel = 0
+                        sample.Position = UDim2.fromOffset(2, 0)
+                        sample.Size = UDim2.fromOffset(72, 28)
+                        sample.ZIndex = root.ZIndex + 1
+                        sample.Parent = root
+                        corner(sample, 5)
+                        local outline = Instance.new("UIStroke")
+                        outline.Color = Color3.new(1, 1, 1)
+                        outline.Transparency = 0.65
+                        outline.Parent = sample
+                        local trigger = Instance.new("TextButton")
+                        trigger.Name = "OpenColorPicker"
+                        trigger.Text = ""
+                        trigger.BackgroundTransparency = 1
+                        trigger.Size = UDim2.fromScale(1, 1)
+                        trigger.ZIndex = root.ZIndex + 2
+                        trigger.Parent = sample
+                        local panel = frame("PickerPanel", root, UDim2.fromOffset(2, 34), UDim2.fromOffset(244, 180), Color3.fromRGB(33, 34, 36))
+                        panel.Visible = false
+                        corner(panel, 7)
+                        local palette = frame("Palette", panel, UDim2.fromOffset(10, 10), UDim2.fromOffset(196, 124))
+                        palette.Active = true
+                        corner(palette, 6)
+                        local white = frame("White", palette, UDim2.new(), UDim2.fromScale(1, 1))
+                        corner(white, 6)
+                        local whiteGradient = Instance.new("UIGradient")
+                        whiteGradient.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
+                        whiteGradient.Parent = white
+                        local black = frame("Black", palette, UDim2.new(), UDim2.fromScale(1, 1), Color3.new(0, 0, 0))
+                        corner(black, 6)
+                        local blackGradient = Instance.new("UIGradient")
+                        blackGradient.Rotation = 90
+                        blackGradient.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)})
+                        blackGradient.Parent = black
+                        local marker = frame("Indicator", palette, UDim2.new(), UDim2.fromOffset(10, 10))
+                        marker.AnchorPoint = Vector2.new(0.5, 0.5)
+                        marker.ZIndex = root.ZIndex + 4
+                        corner(marker, 5)
+                        local markerStroke = Instance.new("UIStroke")
+                        markerStroke.Thickness = 2
+                        markerStroke.Color = Color3.new(1, 1, 1)
+                        markerStroke.Parent = marker
+                        local hueBar = frame("Saturation", panel, UDim2.fromOffset(216, 10), UDim2.fromOffset(18, 124))
+                        hueBar.Active = true
+                        corner(hueBar, 6)
+                        local hueGradient = Instance.new("UIGradient")
+                        hueGradient.Rotation = 90
+                        local colors = {}
+                        for index = 0, 6 do table.insert(colors, ColorSequenceKeypoint.new(index / 6, Color3.fromHSV(index / 6, 1, 1))) end
+                        hueGradient.Color = ColorSequence.new(colors)
+                        hueGradient.Parent = hueBar
+                        local hueMarker = frame("Indicator", hueBar, UDim2.new(), UDim2.new(1, 4, 0, 2))
+                        hueMarker.Position = UDim2.fromOffset(-2, 0)
+                        corner(hueMarker, 1)
+                        hueMarker.ZIndex = root.ZIndex + 4
+                        local done = Instance.new("TextButton")
+                        done.Name = "Done"
+                        done.Text = "Done"
+                        done.Font = theme.Font
+                        done.TextSize = theme.ControlSize
+                        done.TextColor3 = theme.TextColor
+                        done.BackgroundColor3 = Color3.fromRGB(52, 53, 56)
+                        done.BorderSizePixel = 0
+                        done.Position = UDim2.fromOffset(10, 142)
+                        done.Size = UDim2.new(1, -20, 0, 28)
+                        done.ZIndex = root.ZIndex + 2
+                        done:SetAttribute("EleriumFixedSize", true)
+                        done.Parent = panel
+                        corner(done, 5)
+                        local hue, saturation, brightness = 0, 0, 1
+                        local expanded = false
+                        local captured, area, scrollParent, wasScrolling
+                        local function render()
+                            local color = Color3.fromHSV(hue, saturation, brightness)
+                            sample.ImageColor3 = color
+                            sample.BackgroundColor3 = color
+                            palette.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
+                            marker.BackgroundColor3 = color
+                            marker.Position = UDim2.fromScale(saturation, 1 - brightness)
+                            hueMarker.Position = UDim2.new(0, -2, hue, -1)
+                            return color
+                        end
+                        local function stopDrag()
+                            captured = nil
+                            if scrollParent and scrollParent.Parent then scrollParent.ScrollingEnabled = wasScrolling end
+                            scrollParent = nil
+                        end
+                        function data:SetOpen(open)
+                            expanded = open == true
+                            if not expanded then stopDrag() end
+                            panel.Visible = expanded
+                            root.Size = UDim2.new(1, 0, 0, expanded and 214 or 28)
+                            if expanded then
+                                runtime:Defer(function()
+                                    RS.Heartbeat:Wait()
+                                    if not expanded or not root.Parent or not new_tab.Visible then return end
+                                    local scroller = root:FindFirstAncestorWhichIsA("ScrollingFrame")
+                                    if not scroller then return end
+                                    local top = root.AbsolutePosition.Y - scroller.AbsolutePosition.Y
+                                    local bottom = top + root.AbsoluteSize.Y
+                                    local delta = top < 0 and top or math.max(0, bottom - scroller.AbsoluteWindowSize.Y)
+                                    if delta ~= 0 then
+                                        scroller.CanvasPosition = Vector2.new(scroller.CanvasPosition.X,
+                                            math.max(0, scroller.CanvasPosition.Y + delta))
+                                    end
+                                end)
+                            end
+                        end
+                        function data:IsOpen() return expanded end
+                        function data:Set(color)
+                            if not runtime.Alive then return end
+                            assert(typeof(color) == "Color3", "Color picker requires Color3")
+                            hue, saturation, brightness = color:ToHSV()
+                            render()
+                            callback(color)
+                        end
+                        local function update(input)
+                            local position = Vector2.new(input.Position.X, input.Position.Y)
+                            if imgui.IgnoreGuiInset then position = position + game:GetService("GuiService"):GetGuiInset() end
+                            if area == palette then
+                                saturation = math.clamp((position.X - palette.AbsolutePosition.X) / math.max(1, palette.AbsoluteSize.X), 0, 1)
+                                brightness = 1 - math.clamp((position.Y - palette.AbsolutePosition.Y) / math.max(1, palette.AbsoluteSize.Y), 0, 1)
+                            else
+                                hue = math.clamp((position.Y - hueBar.AbsolutePosition.Y) / math.max(1, hueBar.AbsoluteSize.Y), 0, 1)
+                            end
+                            callback(render())
+                        end
+                        local function beginDrag(input, target)
+                            if captured or not expanded then return end
+                            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                            captured, area = input, target
+                            scrollParent = root:FindFirstAncestorWhichIsA("ScrollingFrame")
+                            if scrollParent then wasScrolling = scrollParent.ScrollingEnabled; scrollParent.ScrollingEnabled = false end
+                            update(input)
+                        end
+                        local function changeDrag(input)
+                            if not captured then return end
+                            if captured.UserInputType == Enum.UserInputType.Touch and input ~= captured then return end
+                            if captured.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+                            if input.UserInputState == Enum.UserInputState.Cancel then stopDrag(); return end
+                            update(input)
+                        end
+                        local function endDrag(input)
+                            if captured and (captured == input or captured.UserInputType == Enum.UserInputType.MouseButton1
+                                and input.UserInputType == Enum.UserInputType.MouseButton1) then stopDrag() end
+                        end
+                        runtime:Connect(trigger.Activated, function() data:SetOpen(not expanded) end)
+                        runtime:Connect(done.Activated, function() data:SetOpen(false) end)
+                        runtime:Connect(palette.InputBegan, function(input) beginDrag(input, palette) end)
+                        runtime:Connect(hueBar.InputBegan, function(input) beginDrag(input, hueBar) end)
+                        runtime:Connect(UIS.InputChanged, changeDrag)
+                        runtime:Connect(UIS.InputEnded, endDrag)
+                        runtime:Connect(UIS.WindowFocusReleased, stopDrag)
+                        runtime:AddCleanup(stopDrag)
+                        render()
+                        return data, root
+                    end
 
 					function tab_data:AddConsole(console_options)
 						local console_data = {}
@@ -2354,10 +3127,10 @@ function library:AddWindow(title, options)
 						end)
 
 						local function gFolderLen()
-							local n = 25
+							local n = math.max(20, theme.ControlSize + 6) + theme.Spacing
 							for i,v in pairs(objects:GetChildren()) do
 								if not (v:IsA("UIListLayout")) then
-									n = n + v.AbsoluteSize.Y + 5
+									n = n + v.AbsoluteSize.Y + theme.Spacing
 								end
 							end
 							return n
@@ -2376,12 +3149,14 @@ function library:AddWindow(title, options)
 
 						runtime:Spawn(function()
 							while true do
-								Resize(folder, {Size = UDim2.new(1, 0, 0, (open and gFolderLen() or 20))}, options.tween_time)
+								objects.Position = UDim2.fromOffset(0, math.max(20, theme.ControlSize + 6) + theme.Spacing)
+                                Resize(folder, {Size = UDim2.new(1, 0, 0, (open and gFolderLen() or math.max(20, theme.ControlSize + 6)))}, options.tween_time)
 								wait()
 							end
 						end)
 
 						for i,v in pairs(tab_data) do
+                            if type(v) == "function" and i:sub(1, 3) == "Add" then
 							folder_data[i] = function(...)
 								local data, object
 								local ret = {v(...)}
@@ -2398,11 +3173,13 @@ function library:AddWindow(title, options)
 							end
 						end
 
+                            end
 						return folder_data, folder
 					end
 
 				end
 
+                decorateTab(tab_data, new_tab, tab_name)
 				return tab_data, new_tab
 			end
 		end
@@ -2416,6 +3193,10 @@ function library:AddWindow(title, options)
 		end
 	end
 
+    table.insert(library.WindowInstances, window_data)
+    for method, module in pairs(library.WindowModules) do
+        window_data[method] = function(windowSelf, settings) return module:Build(windowSelf, settings) end
+    end
 	return window_data, Window
 end
 
