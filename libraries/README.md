@@ -1,18 +1,18 @@
 # Elerium library
 
-## Einfacher Einstieg
+## Quick start
 
-1. Lade die Library und erstelle ein Fenster.
-2. Erstelle einen Tab und füge Labels, Buttons oder Schalter hinzu.
-3. Schreibe deine Script-Logik in die jeweilige `function`.
+1. Load the library and create a window
+2. Add a tab with labels, buttons, or switches
+3. Put your script logic inside each `function`
 
-Dieses Beispiel kannst du direkt als Grundlage verwenden:
+Use this example to get started:
 
 ```lua
 local base = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/"
 local library = loadstring(game:HttpGet(base .. "eleriumv2.luau"))()
 
-local window = library:AddWindow("Mein Script", {
+local window = library:AddWindow("My script", {
     main_color = Color3.fromRGB(138, 0, 0),
     min_size = Vector2.new(500, 560),
     can_resize = true,
@@ -23,65 +23,73 @@ local tabs = {
     info = window:AddTab("Info"),
 }
 
-tabs.main:AddHeading("Meine Funktionen")
-tabs.main:AddLabel("Willkommen!")
+tabs.main:AddHeading("My features")
+tabs.main:AddLabel("Welcome!")
 
-tabs.main:AddButton("Klick mich", function()
-    -- Hier kommt deine Aktion hin.
+tabs.main:AddButton("Click me", function()
+    -- Put your action here
 end)
 
-tabs.main:AddSwitch("Funktion aktivieren", function(aktiv)
-    -- aktiv ist true beim Einschalten und false beim Ausschalten.
+tabs.main:AddSwitch("Enable feature", function(enabled)
+    -- enabled is true when on and false when off
 end)
 
-tabs.main:AddSlider("Geschwindigkeit", function(wert)
-    -- Der Wert wird beim Loslassen übernommen.
+tabs.main:AddSlider("Speed", function(value)
+    -- The value is applied when you release the slider
 end, {min = 0, max = 100})
 
-tabs.info:AddLabel("Mein erstes UI")
+tabs.info:AddLabel("My first UI")
 tabs.main:Show()
 ```
 
-`AddHeading()` ist eine Überschrift mit standardmäßig 16px. `AddLabel()` ist ein
-normaler Text mit 14px. Mit `\n` fügst du weitere Zeilen ein:
+`AddHeading()` creates a heading with a default size of 16px
+
+`AddLabel()` creates a regular label with a default size of 14px
+
+Use `\n` to add more lines:
 
 ```lua
-local label = tabs.main:AddLabel("Hallo\nWelt")
-label.Text = "Du kannst den Text später ändern."
+local label = tabs.main:AddLabel("Hello\nWorld")
+label.Text = "You can change the text later"
 ```
 
-### Customize und Configs hinzufügen
+### Add Customize and Configs
 
-Lade die beiden optionalen Module **direkt nach der Library**, bevor du das
-Fenster erstellst:
+Load the optional modules **right after the library**, before creating the window:
 
 ```lua
 library:Use(loadstring(game:HttpGet(base .. "modules/Customize.luau"))())
 library:Use(loadstring(game:HttpGet(base .. "modules/ConfigManager.luau"))())
 ```
 
-Lass im Beispiel den Eintrag `info` zunächst aus der `tabs`-Tabelle weg. Füge
-stattdessen **ganz am Ende**, nachdem alle Funktionen erstellt sind, Folgendes ein:
+Remove `info` from the first example
+
+Add the following **at the end**, after creating all your controls:
 
 ```lua
 tabs.customize = window:AddCustomizeTab()
 local configManager
 tabs.configs, configManager = window:AddConfigTab({
-    Folder = "Silence/Configs/MeinScript",
+    Folder = "Silence/Configs/MyScript",
 })
 tabs.info = window:AddTab("Info")
-tabs.info:AddLabel("Mein erstes UI")
+tabs.info:AddLabel("My first UI")
 
 configManager:LoadStartup()
 tabs.main:Show()
 ```
 
-Verschiebe dabei auch `tabs.info:AddLabel(...)` aus dem ersten Beispiel ans Ende.
-So ist die Reihenfolge **Main → Customize → Configs → Info**. Verwende für jedes
-Script einen eigenen Config-Ordner. Im Configs-Tab kannst du Profile speichern
-und ein Startprofil auswählen; Customize speichert sein Aussehen automatisch.
+Also move `tabs.info:AddLabel(...)` and `tabs.main:Show()` from the first example to the end
 
-Die folgenden Abschnitte enthalten die ausführlichere API-Referenz.
+The tab order is **Main → Customize → Configs → Info**
+
+Use a separate config folder for each script
+
+The Configs tab lets you save profiles and choose a startup profile
+
+Customize saves your appearance settings automatically
+
+The sections below explain the API in more detail
 
 ## Optional module tabs
 
@@ -109,24 +117,35 @@ enabled:SetConfigKey("Main.Enabled")
 manager:LoadStartup()
 ```
 
-Load startup profiles **after all script controls exist**. Alternatively, when the
-config tab itself is added at the end, `{AutoLoad = true}` loads its startup profile
-immediately. Both module methods accept an optional `Title` for their tab name.
+Load startup profiles **after creating all script controls**
 
-The Muscle Legends scripts use Customize → Configs → Info as their final tabs.
-Their config profiles are kept in separate Main/Farming folders under
-`Silence/Configs/MuscleLegends`.
+If you add the config tab after all controls, you can use `{AutoLoad = true}` to load the startup profile right away
+
+Both module methods accept `Title` to set a custom tab name
+
+The Muscle Legends scripts end with Customize → Configs → Info
+
+Their profiles use separate Main and Farming folders under `Silence/Configs/MuscleLegends`
 
 ## Configs
 
-Create, save, load, refresh, delete, and choose/clear a startup profile. Profiles
-contain switches, sliders, dropdown selections, text inputs, colors, keybinds, and
-appearance. Values and selections are loaded before switches; module-tab controls
-and displayed stats are excluded.
+Use the Configs tab to create, save, load, refresh, or delete profiles and choose or clear a startup profile
 
-Control keys default to tab/type/original label/occurrence. Controls returning a
-data object also expose `GetValue()`, `SetValue(value)`, and
-`SetConfigKey("stable.key")`. For script-owned state, including custom multi-selects:
+Profiles save switches, sliders, dropdowns, text inputs, colors, keybinds, and appearance settings
+
+Other values load before switches, so switches use the saved settings when they turn on
+
+Controls inside module tabs and displayed stats are not saved
+
+Default control keys use the tab, control type, original label, and position among matching controls
+
+Controls that return a data object also provide:
+
+- `GetValue()` to read the value
+- `SetValue(value)` to change the value
+- `SetConfigKey("stable.key")` to give the control a fixed config key
+
+Use `RegisterConfig` for your own state, such as a custom list of selected items:
 
 ```lua
 window:RegisterConfig("SelectedItems", function()
@@ -137,48 +156,86 @@ end, function(value)
 end)
 ```
 
-Bindings support JSON-compatible values, Color3, Font/KeyCode enums, and nested
-tables of those values. `tab:SetConfigIgnored(true)` excludes its automatic bindings.
+Supported values include JSON values, Color3, Font and KeyCode enums, and tables containing these types
 
-Manager methods: `Save(name)`, `Load(name)`, `Delete(name)`, `Refresh()`,
-`SetAutoload(nameOrNil)`, `GetAutoload()`, `LoadAutoload()`, `LoadStartup()`.
-`LoadStartup()` catches errors and reports them in the Configs tab.
+Use `tab:SetConfigIgnored(true)` to skip automatic config saving for a tab
+
+Manager methods:
+
+- `Save(name)`
+- `Load(name)`
+- `Delete(name)`
+- `Refresh()`
+- `SetAutoload(nameOrNil)`
+- `GetAutoload()`
+- `LoadAutoload()`
+- `LoadStartup()`
+
+`LoadStartup()` catches errors and shows them in the Configs tab
 
 ## Customize
 
-Main/background/text color, font, heading/label/control text size, and row spacing.
-Color controls show a swatch; tapping it expands the picker. Font options preview
-their own font. The window title and header controls retain their appearance.
+Change the main color, background color, text color, font, text sizes, and row spacing
 
-Settings save automatically to `Silence/Customize/<PlaceId>/appearance.json` and
-load when Customize is added. Override the folder with `{Folder = "..."}`.
-Pending writes flush during close/reexecution. Startup configs preserve these
-preferences; manual profile loads can restore and save a different appearance.
+Click or tap a color swatch to open the color picker
 
-`window:GetTheme()`, `window:SetTheme({...})`, and `window:ResetTheme()` are available.
-Theme keys: `MainColor`, `BackgroundColor`, `TextColor`, `Font`, `HeadingSize`,
-`LabelSize`, `ControlSize`, `Spacing`.
+Each font option uses its own font as a preview
+
+The window title and header controls keep their original appearance
+
+Settings save automatically to `Silence/Customize/<PlaceId>/appearance.json` and load when you add Customize
+
+Use `{Folder = "..."}` to change the folder
+
+Any pending changes save when you close or run the script again
+
+Startup profiles keep your saved appearance settings, while loading a profile manually can change and save them
+
+Theme methods:
+
+- `window:GetTheme()`
+- `window:SetTheme({...})`
+- `window:ResetTheme()`
+
+Theme keys: `MainColor`, `BackgroundColor`, `TextColor`, `Font`, `HeadingSize`, `LabelSize`, `ControlSize`, `Spacing`
 
 ## Labels and inputs
 
-- `AddHeading(text)` defaults to 16px; `AddLabel(text)` defaults to 14px.
-- `AddLabel("Hello\nWorld")` has the same row spacing as two separate labels.
-- Labels retain the mutable `.Text`, `.Font`, `.TextSize`, and `.TextColor3` API.
-- Sliders support mouse and touch. Their displayed value follows the drag; callbacks
-  run on release by default. Cancellation keeps the previous committed value.
-  Options: `min`, `max`, `step`, `readonly`, `commitOnRelease` (default true).
-  `Set(value)` uses actual values and applies immediately; `IsDragging()` reports capture.
-- Color pickers support mouse/touch, `Set(Color3)`, `SetOpen(bool)`, and `IsOpen()`.
+- `AddHeading(text)` uses 16px by default
+- `AddLabel(text)` uses 14px by default
+- `AddLabel("Hello\nWorld")` has the same spacing as two separate labels
+- Change labels with `.Text`, `.Font`, `.TextSize`, and `.TextColor3`
+- Sliders work with mouse and touch
+- Slider values update while dragging, but callbacks run when you release by default
+- Cancelling a drag keeps the last applied value
+- Slider options: `min`, `max`, `step`, `readonly`, `commitOnRelease` (default true)
+- `Set(value)` applies a slider value right away
+- `IsDragging()` tells you if the slider is being dragged
+- Color pickers work with mouse and touch and provide `Set(Color3)`, `SetOpen(bool)`, and `IsOpen()`
 
 ## Windows and assets
 
-Drag the title or non-interactive tab content to move the window. In overflowing
-content, dragging along its scroll axis scrolls; perpendicular dragging moves the
-window. Wheel and scrollbar input remain available. The minimum expanded height is
-300px; minimum width follows the complete title and header controls. `min_size`
-sets the initial size. The icon and minimize button toggle the animated collapsed
-header; Close destroys the runtime and stops its managed work.
+Drag the title or empty tab content to move the window
 
-`window:SetSize(Vector2)`, `SetTitle(string)`, `Minimize(bool)`, and `Destroy()` are
-available. Resize handles and scrollbars follow the main color and highlight while
-used. PNG icons cache under `Silence/LibraryAssets`; see [asset credits](assets/README.md).
+When content overflows, dragging along the scroll direction scrolls it and dragging across that direction moves the window
+
+You can also use the mouse wheel or scrollbar
+
+The minimum window height is 300px and the minimum width fits the full title and header controls
+
+`min_size` sets the starting size
+
+Click the icon or minimize button to collapse or restore the window with an animation
+
+Close removes the window and stops work managed by its runtime
+
+Window methods:
+
+- `window:SetSize(Vector2)`
+- `window:SetTitle(string)`
+- `window:Minimize(bool)`
+- `window:Destroy()`
+
+Resize handles and scrollbars use the main color and highlight while in use
+
+PNG icons are cached under `Silence/LibraryAssets` — see [asset credits](assets/README.md)

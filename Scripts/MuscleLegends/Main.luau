@@ -13,6 +13,8 @@ local services = {
 }
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2.luau?cache=" .. tostring(os.time()), true))()
+library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/modules/ConfigManager.luau?cache=" .. tostring(os.time()), true))())
+library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/modules/Customize.luau?cache=" .. tostring(os.time()), true))())
 local runtime = library.Runtime
 
 do
@@ -138,9 +140,12 @@ local tabs = {
 	inventory = utils.silence:AddTab("Pets"),
 	boosts = utils.silence:AddTab("Boosts"),
 	teleport = utils.silence:AddTab("Teleports"),
-	stats = utils.silence:AddTab("Stats"),
-	info = utils.silence:AddTab("Info")
+	stats = utils.silence:AddTab("Stats")
 }
+
+tabs.customize = utils.silence:AddCustomizeTab()
+tabs.configs, utils.configManager = utils.silence:AddConfigTab({Folder = "Silence/Configs/MuscleLegends/Main"})
+tabs.info = utils.silence:AddTab("Info")
 
 for _, tab in pairs(tabs) do
 	tab.runtime = {}
@@ -2331,7 +2336,7 @@ for _, config in ipairs(tabs.farming.Configs) do
 	end)
 end
 
-tabs.boss:AddLabel("Boss Farming:")
+tabs.boss:AddHeading("Boss Farming:")
 tabs.boss.StatusLabel = tabs.boss:AddLabel("Status: Waiting for Boss")
 tabs.boss.BossLabel = tabs.boss:AddLabel("Boss: None")
 tabs.boss.HealthLabel = tabs.boss:AddLabel("Health: 0 / 0")
@@ -2943,7 +2948,7 @@ end)
 
 tabs.boss:AddLabel("")
 
-tabs.boss:AddLabel("Halloween Boss Farming:")
+tabs.boss:AddHeading("Halloween Boss Farming:")
 tabs.boss.Halloween = {
 	runtime = {},
 	BossLabelPrefix = "Halloween Boss: ",
@@ -3629,3 +3634,8 @@ tabs.info:AddLabel("")
 tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.2.1]")
 tabs.info.VersionLabel.TextSize = 20
 tabs.info.VersionLabel.Font = Enum.Font.Arcade
+
+
+runtime:Defer(function()
+    utils.configManager:LoadStartup()
+end)
