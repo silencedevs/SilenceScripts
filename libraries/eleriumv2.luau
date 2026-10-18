@@ -1247,6 +1247,13 @@ function library:AddWindow(title, options)
 	options = (typeof(options) == "table") and options or ui_options
 	options.tween_time = 0.1
 
+    local mainColorTargets = setmetatable({}, {__mode = "k"})
+    local function bindMainColor(object)
+        if not object then return end
+        object.ImageColor3 = options.main_color
+        mainColorTargets[object] = true
+    end
+
 	local Window = prefabs:FindFirstChild("Window"):Clone()
 	Window.Parent = windowsFrame
 	Window:FindFirstChild("Title").Text = title
@@ -1261,17 +1268,11 @@ function library:AddWindow(title, options)
 		local SplitFrame = Window:FindFirstChild("TabSelection"):FindFirstChild("Frame")
 		local Toggle = Bar:FindFirstChild("Toggle")
 
-		runtime:Spawn(function()
-			while true do
-				Bar.BackgroundColor3 = options.main_color
-				Base.BackgroundColor3 = options.main_color
-				Base.ImageColor3 = options.main_color
-				Top.ImageColor3 = options.main_color
-				SplitFrame.BackgroundColor3 = options.main_color
-
-				RS.Heartbeat:Wait()
-			end
-		end)
+        Bar.BackgroundColor3 = options.main_color
+        Base.BackgroundColor3 = options.main_color
+        bindMainColor(Base)
+        bindMainColor(Top)
+        SplitFrame.BackgroundColor3 = options.main_color
 
 	end
 
@@ -1667,7 +1668,11 @@ function library:AddWindow(title, options)
             scrollPointer = scrollbarPoint(input)
         end
     end)
-    runtime:Connect(RS.Heartbeat, function()
+    local scrollbarElapsed = 0
+    runtime:Connect(RS.Heartbeat, function(delta)
+        scrollbarElapsed = scrollbarElapsed + delta
+        if scrollbarElapsed < 0.05 then return end
+        scrollbarElapsed = 0
         local now = os.clock()
         for surface, state in pairs(scrollbars) do
             local active = state.Input ~= nil or now - state.LastUsed < 0.25
@@ -1794,18 +1799,27 @@ function library:AddWindow(title, options)
     window_data.Runtime = runtime
     window_data.ConfigControls = entries
 
+    local textService = game:GetService("TextService")
+    local dirtyLabels = {}
+
     local function renderLabel(label)
-        if not label.Parent then return end
-        local busy = label:GetAttribute("EleriumRendering")
-        if busy then return end
-        label:SetAttribute("EleriumRendering", true)
-        local width = math.max(1, label.AbsoluteSize.X)
+        local state = labels[label]
+        if not label.Parent or not state or state.Rendering then return end
+        state.Rendering = true
+        dirtyLabels[label] = nil
+        local width = math.max(1, math.floor(label.AbsoluteSize.X + 0.5))
+        state.Width = width
+        if state.Text ~= label.Text then
+            state.Text = label.Text
+            state.Paragraphs = {}
+            for paragraph in string.gmatch(label.Text:gsub("\r\n", "\n"):gsub("\r", "\n") .. "\n", "(.-)\n") do
+                table.insert(state.Paragraphs, paragraph)
+            end
+        end
         local paragraphY = 0
-        local index = 0
-        for paragraph in string.gmatch(label.Text:gsub("\r\n", "\n"):gsub("\r", "\n") .. "\n", "(.-)\n") do
-            index = index + 1
-            local line = label:FindFirstChild("Line" .. index)
-            if not line then
+        for index, paragraph in ipairs(state.Paragraphs) do
+            local line = state.Lines[index]
+            if not line or line.Parent ~= label then
                 line = Instance.new("TextLabel")
                 line.Name = "Line" .. index
                 line.BackgroundTransparency = 1
@@ -1814,6 +1828,7 @@ function library:AddWindow(title, options)
                 line.TextYAlignment = Enum.TextYAlignment.Center
                 line:SetAttribute("EleriumLabelLine", true)
                 line.Parent = label
+                state.Lines[index] = line
             end
             line.Text = paragraph
             line.Font = label.Font
@@ -1821,20 +1836,51 @@ function library:AddWindow(title, options)
             line.TextColor3 = label.TextColor3
             line.RichText = label.RichText
             line.ZIndex = label.ZIndex
-            local measured = game:GetService("TextService"):GetTextSize(
-                paragraph == "" and " " or paragraph, label.TextSize, label.Font, Vector2.new(width, 100000))
-            local height = math.max(label.TextSize + 6, measured.Y)
+            local cached = state.Measurements[index]
+            if not cached or cached.Text ~= paragraph or cached.Width ~= width
+                or cached.Font ~= label.Font or cached.Size ~= label.TextSize then
+                local measured = textService:GetTextSize(paragraph == "" and " " or paragraph,
+                    label.TextSize, label.Font, Vector2.new(width, 100000))
+                cached = {Text = paragraph, Width = width, Font = label.Font, Size = label.TextSize,
+                    Height = math.max(label.TextSize + 6, measured.Y)}
+                state.Measurements[index] = cached
+            end
             line.Position = UDim2.fromOffset(0, paragraphY)
-            line.Size = UDim2.new(1, 0, 0, height)
-            paragraphY = paragraphY + height + theme.Spacing
+            line.Size = UDim2.new(1, 0, 0, cached.Height)
+            paragraphY = paragraphY + cached.Height + theme.Spacing
         end
-        for _, child in ipairs(label:GetChildren()) do
-            local number = tonumber(child.Name:match("^Line(%d+)$"))
-            if number and number > index then child:Destroy() end
+        for index = #state.Lines, #state.Paragraphs + 1, -1 do
+            state.Lines[index]:Destroy()
+            state.Lines[index] = nil
+            state.Measurements[index] = nil
         end
         label.Size = UDim2.new(1, -10, 0, math.max(label.TextSize + 6, paragraphY - theme.Spacing))
-        label:SetAttribute("EleriumRendering", false)
+        state.Rendering = false
     end
+
+    local function labelVisible(label)
+        if minimized or not Window.Visible then return false end
+        local node = label
+        while node and node ~= Window do
+            if node:IsA("GuiObject") and not node.Visible then return false end
+            node = node.Parent
+        end
+        return node == Window
+    end
+
+    local labelElapsed = 0
+    runtime:Connect(RS.Heartbeat, function(delta)
+        labelElapsed = labelElapsed + delta
+        if labelElapsed < 0.1 then return end
+        labelElapsed = 0
+        for label in pairs(dirtyLabels) do
+            if not label.Parent then
+                dirtyLabels[label] = nil
+            elseif labelVisible(label) then
+                renderLabel(label)
+            end
+        end
+    end)
 
     local function addTextLabel(parent, text, heading)
         local object = prefabs.Label:Clone()
@@ -1850,11 +1896,18 @@ function library:AddWindow(title, options)
         object.Size = UDim2.new(1, -10, 0, object.TextSize + 6)
         object.ZIndex = object.ZIndex + windows * 10
         object.Parent = parent
-        labels[object] = true
-        for _, property in ipairs({"Text", "TextSize", "Font", "TextColor3", "AbsoluteSize", "RichText", "ZIndex"}) do
-            runtime:Connect(object:GetPropertyChangedSignal(property), function() renderLabel(object) end)
+        labels[object] = {Lines = {}, Measurements = {}}
+        for _, property in ipairs({"Text", "TextSize", "Font", "TextColor3", "RichText", "ZIndex"}) do
+            runtime:Connect(object:GetPropertyChangedSignal(property), function() dirtyLabels[object] = true end)
         end
-        runtime:Connect(object.Destroying, function() labels[object] = nil end)
+        runtime:Connect(object:GetPropertyChangedSignal("AbsoluteSize"), function()
+            local state = labels[object]
+            if state and state.Width ~= math.max(1, math.floor(object.AbsoluteSize.X + 0.5)) then dirtyLabels[object] = true end
+        end)
+        runtime:Connect(object.Destroying, function()
+            dirtyLabels[object] = nil
+            labels[object] = nil
+        end)
         renderLabel(object)
         return object
     end
@@ -1920,6 +1973,11 @@ function library:AddWindow(title, options)
         Window.BackgroundColor3 = theme.BackgroundColor
         Window.ImageColor3 = theme.BackgroundColor
         Bar.BackgroundColor3 = theme.MainColor
+        Bar.Base.BackgroundColor3 = theme.MainColor
+        TabSelection.Frame.BackgroundColor3 = theme.MainColor
+        for object in pairs(mainColorTargets) do
+            if object.Parent then object.ImageColor3 = theme.MainColor end
+        end
         for object in pairs(labels) do
             object.Font = theme.Font
             object.TextSize = object:GetAttribute("EleriumRole") == "Heading" and theme.HeadingSize or theme.LabelSize
@@ -2147,14 +2205,7 @@ function library:AddWindow(title, options)
 						button.ZIndex = button.ZIndex + (windows * 10)
 						button:GetChildren()[1].ZIndex = button:GetChildren()[1].ZIndex + (windows * 10)
 
-						runtime:Spawn(function()
-							while true do
-								if button and button:GetChildren()[1] then
-									button:GetChildren()[1].ImageColor3 = options.main_color
-								end
-								RS.Heartbeat:Wait()
-							end
-						end)
+                        bindMainColor(button:GetChildren()[1])
 
 						runtime:Connect(button.MouseButton1Click, function()
 							ripple(button, mouse.X, mouse.Y)
@@ -2179,14 +2230,7 @@ function library:AddWindow(title, options)
 						switch.ZIndex = switch.ZIndex + (windows * 10)
 						switch:GetChildren()[1].ZIndex = switch:GetChildren()[1].ZIndex + (windows * 10)
 
-						runtime:Spawn(function()
-							while true do
-								if switch and switch:GetChildren()[1] then
-									switch:GetChildren()[1].ImageColor3 = options.main_color
-								end
-								RS.Heartbeat:Wait()
-							end
-						end)
+                        bindMainColor(switch:GetChildren()[1])
 
 						local toggled = false
 						runtime:AddCleanup(function()
@@ -3121,14 +3165,7 @@ function library:AddWindow(title, options)
 						folder.Parent = new_tab
 						button.Text = "      " .. folder_name
 
-						runtime:Spawn(function()
-							while true do
-								if button and button:GetChildren()[1] then
-									button:GetChildren()[1].ImageColor3 = options.main_color
-								end
-								RS.Heartbeat:Wait()
-							end
-						end)
+                        bindMainColor(button:GetChildren()[1])
 
 						local function gFolderLen()
 							local n = math.max(20, theme.ControlSize + 6) + theme.Spacing
@@ -3140,24 +3177,26 @@ function library:AddWindow(title, options)
 							return n
 						end
 
-						local open = false
-						runtime:Connect(button.MouseButton1Click, function()
+                        local open = false
+                        local function updateFolderSize()
+                            objects.Position = UDim2.fromOffset(0, math.max(20, theme.ControlSize + 6) + theme.Spacing)
+                            local size = UDim2.new(1, 0, 0, open and gFolderLen() or math.max(20, theme.ControlSize + 6))
+                            if folder.Size ~= size then Resize(folder, {Size = size}, options.tween_time) end
+                        end
+                        local layout = objects:FindFirstChildOfClass("UIListLayout")
+                        runtime:Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), updateFolderSize)
+                        table.insert(themeListeners, updateFolderSize)
+                        runtime:Connect(button.MouseButton1Click, function()
 							if open then
 								objects.Visible = false
 							else
 								objects.Visible = true
 							end
 
-							open = not open
-						end)
-
-						runtime:Spawn(function()
-							while true do
-								objects.Position = UDim2.fromOffset(0, math.max(20, theme.ControlSize + 6) + theme.Spacing)
-                                Resize(folder, {Size = UDim2.new(1, 0, 0, (open and gFolderLen() or math.max(20, theme.ControlSize + 6)))}, options.tween_time)
-								wait()
-							end
-						end)
+                            open = not open
+                            updateFolderSize()
+                        end)
+                        updateFolderSize()
 
 						for i,v in pairs(tab_data) do
                             if type(v) == "function" and i:sub(1, 3) == "Add" then

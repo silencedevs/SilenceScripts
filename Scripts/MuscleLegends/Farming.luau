@@ -645,13 +645,10 @@ tabs.strength.gainedBaselineSet = false
 tabs.strength.statSamples = {Strength = tabs.strength.strength.Value, Durability = tabs.strength.durability.Value}
 tabs.strength.statGains = {Strength = 0, Durability = 0}
 tabs.strength.initialSendRate = 200
-tabs.strength.maxSendRate = 640
+tabs.strength.maxSendRate = 451
 tabs.strength.sendRate = math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate)
 tabs.strength.maxBurst = 24
 tabs.strength.Tokens = 0
-tabs.strength.pingLimit = 0
-tabs.strength.pingPaused = false
-tabs.strength.readPing = readDataPing
 tabs.strength.controlInterval = 0.5
 tabs.strength.lastControlAt = tick()
 tabs.strength.lastControlStrength = tabs.strength.strength.Value
@@ -696,39 +693,6 @@ tabs.strength.startMeasurement = function()
     tabs.strength.updateStats()
 end
 
-tabs.strength.updateStatus = function(ping)
-    local tab = tabs.strength
-    local pingText = ping and string.format(" | Ping: %.1f ms", ping) or " | Ping: unavailable"
-    if not tab.running then
-        tab.Status.Text = (tab.gainedBaselineSet and "Status: Paused" or "Status: Inactive") .. pingText
-        tab.Status.TextColor3 = tab.gainedBaselineSet and Color3.fromRGB(255, 180, 70) or Color3.fromRGB(255, 80, 80)
-    elseif tab.pingPaused then
-        tab.Status.Text = "Status: Waiting | " .. formatNumber(tab.sendRate) .. " reps/s" .. pingText
-        tab.Status.TextColor3 = Color3.fromRGB(255, 180, 70)
-    else
-        local slowing = tab.stalledIntervals >= 2
-        local state = slowing and "Slowing for server" or (tab.sendRate >= tab.maxSendRate and "Farming" or "Preparing")
-        tab.Status.Text = "Status: " .. state .. " | " .. formatNumber(tab.sendRate) .. " reps/s" .. pingText
-        tab.Status.TextColor3 = slowing and Color3.fromRGB(255, 180, 70) or Color3.fromRGB(80, 255, 120)
-    end
-end
-
-tabs.strength.updatePingControl = function()
-    local tab = tabs.strength
-    local ping = tab.readPing()
-    local wasPaused = tab.pingPaused
-    tab.pingPaused = tab.pingLimit > 0 and (not ping or ping > tab.pingLimit)
-    if tab.pingPaused or wasPaused then
-        tab.Tokens = 0
-        tab.LastAt = os.clock()
-        tab.lastControlAt = tick()
-        tab.lastControlStrength = tab.strength.Value
-        tab.lastControlDurability = tab.durability.Value
-        tab.stalledIntervals = 0
-    end
-    return ping
-end
-
 tabs.strength.updateAdaptiveRate = function()
     tabs.strength.controlNow = tick()
     tabs.strength.controlElapsed = tabs.strength.controlNow - tabs.strength.lastControlAt
@@ -742,6 +706,9 @@ tabs.strength.updateAdaptiveRate = function()
     if tabs.strength.serverProgress then
         tabs.strength.stalledIntervals = 0
         tabs.strength.sendRate = math.min(tabs.strength.maxSendRate, tabs.strength.sendRate * 1.12)
+        tabs.strength.Status.Text = (tabs.strength.sendRate >= tabs.strength.maxSendRate
+            and "Status: Farming | " or "Status: Preparing | ") .. formatNumber(tabs.strength.sendRate) .. " reps/s"
+        tabs.strength.Status.TextColor3 = Color3.fromRGB(80, 255, 120)
     else
         tabs.strength.stalledIntervals = tabs.strength.stalledIntervals + 1
     end
@@ -749,6 +716,9 @@ tabs.strength.updateAdaptiveRate = function()
     if tabs.strength.stalledIntervals >= 2 then
         tabs.strength.sendRate = math.max(math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate), tabs.strength.sendRate * 0.65)
         tabs.strength.Tokens = 0
+        tabs.strength.Status.Text = "Status: Slowing for server | "
+            .. formatNumber(tabs.strength.sendRate) .. " reps/s"
+        tabs.strength.Status.TextColor3 = Color3.fromRGB(255, 180, 70)
     end
 
     tabs.strength.lastControlAt = tabs.strength.controlNow
@@ -759,16 +729,12 @@ end
 tabs.strength.workerLoop = function()
     tabs.strength.LastAt = os.clock()
     local function isRunning()
-        return tabs.strength.running and not tabs.strength.pingPaused
+        return tabs.strength.running
     end
     while tabs.strength.running do
-        local ping = tabs.strength.updatePingControl()
-        if not tabs.strength.pingPaused then
-            tabs.strength.updateAdaptiveRate()
-            tabs.strength.startMeasurement()
-            sendTrainingReps(tabs.strength, tabs.strength.sendRate, tabs.strength.maxBurst, isRunning)
-        end
-        tabs.strength.updateStatus(ping)
+        tabs.strength.updateAdaptiveRate()
+        tabs.strength.startMeasurement()
+        sendTrainingReps(tabs.strength, tabs.strength.sendRate, tabs.strength.maxBurst, isRunning)
 
         services.runservice.Heartbeat:Wait()
     end
@@ -798,16 +764,6 @@ runtime:Connect(tabs.strength.durability:GetPropertyChangedSignal("Value"), func
     tabs.strength.updateStats()
 end)
 
-tabs.strength.PingLimitLabel = tabs.strength:AddLabel("Ping Limit: ∞ ms | 0 = ∞")
-tabs.strength.PingLimitInput = tabs.strength:AddTextBox("Max Ping (ms)", function(inputText)
-    local value = tonumber(inputText)
-    if not value or value ~= value or value == math.huge or value == -math.huge then return end
-    tabs.strength.pingLimit = math.max(0, value)
-    tabs.strength.PingLimitLabel.Text = "Ping Limit: " .. (tabs.strength.pingLimit == 0 and "∞" or tostring(tabs.strength.pingLimit)) .. " ms | 0 = ∞"
-    tabs.strength.updateStatus(tabs.strength.updatePingControl())
-end, {clear = false})
-tabs.strength.PingLimitInput.Text = "0"
-
 tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(inputText, value)
     value = tonumber(inputText)
     if not value or value ~= value or value == math.huge or value == -math.huge then return end
@@ -822,6 +778,8 @@ tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(i
     tabs.strength.sendRate = math.min(tabs.strength.sendRate, tabs.strength.maxSendRate)
 end, {clear = false})
 
+tabs.strength:AddLabel("Recommended Speed: 451, you can always try more.")
+
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
     recordStatGain(tabs.strength, "Strength", tabs.strength.strength.Value)
     recordStatGain(tabs.strength, "Durability", tabs.strength.durability.Value)
@@ -830,9 +788,7 @@ tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state
     tabs.strength.statSamples.Durability = tabs.strength.durability.Value
     tabs.strength.running = state
     tabs.strength.Tokens = 0
-    tabs.strength.pingPaused = false
     if state then
-        if tabs.strength2.running then tabs.strength2.FastRepToggle:Set(false) end
         if tabs.rebirths.running then tabs.rebirths.Switch:Set(false) end
         tabs.strength.gainedBaselineSet = true
         tabs.strength.sendRate = math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate)
@@ -850,10 +806,21 @@ tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state
         tabs.strength.updateRuntime()
     end
     tabs.strength.updateStats()
-    tabs.strength.updateStatus(tabs.strength.readPing())
 end)
 
 tabs.strength.FastRepToggle:Set(false)
+
+runtime:Spawn(function()
+    while true do
+        tabs.rebirths.updateRuntime()
+        tabs.strength.updateRuntime()
+        if tabs.strength.timerStarted and getElapsed(tabs.strength) >= tabs.strength.nextAverageElapsed then
+            tabs.strength.updateAverage()
+            tabs.strength.nextAverageElapsed = getElapsed(tabs.strength) + 10
+        end
+        task.wait(0.1)
+    end
+end)
 
 tabs.strength2.leaderstats = lp.player:WaitForChild("leaderstats")
 tabs.strength2.strength = tabs.strength2.leaderstats:WaitForChild("Strength")
@@ -988,6 +955,10 @@ tabs.strength2.workerLoop = function()
         return tabs.strength2.running and not tabs.strength2.pingPaused
     end
     while tabs.strength2.running do
+        if tabs.strength.running or tabs.rebirths.running then
+            tabs.strength2.FastRepToggle:Set(false)
+            break
+        end
         tabs.strength2.updateAdaptiveRate()
         tabs.strength2.startMeasurement()
         if not tabs.strength2.pingPaused then
@@ -1058,7 +1029,6 @@ tabs.strength2.FastRepToggle:Set(false)
 runtime:Spawn(function()
     while true do
         local ping = readDataPing()
-        tabs.strength.updateStatus(ping)
         if not tabs.strength2.running then
             tabs.strength2.updateStatus(ping)
         end
@@ -1068,16 +1038,10 @@ end)
 
 runtime:Spawn(function()
     while true do
-        tabs.rebirths.updateRuntime()
-        tabs.strength.updateRuntime()
         tabs.strength2.updateRuntime()
         if tabs.strength2.timerStarted and getElapsed(tabs.strength2) >= tabs.strength2.nextAverageElapsed then
             tabs.strength2.updateAverage()
             tabs.strength2.nextAverageElapsed = getElapsed(tabs.strength2) + 10
-        end
-        if tabs.strength.timerStarted and getElapsed(tabs.strength) >= tabs.strength.nextAverageElapsed then
-            tabs.strength.updateAverage()
-            tabs.strength.nextAverageElapsed = getElapsed(tabs.strength) + 10
         end
         task.wait(0.1)
     end
