@@ -2420,20 +2420,31 @@ function library:AddWindow(title, options)
 						dropdown.Text = "      " .. dropdown_name
 						box.Size = UDim2.new(1, 0, 0, 0)
 
-						local open = false
-						runtime:Connect(dropdown.MouseButton1Click, function()
-							open = not open
+                        local open = false
+                        local layout = objects:FindFirstChildOfClass("UIListLayout")
+                        local function updateDropdownSize()
+                            local count, visibleHeight = 0, 0
+                            for _, item in ipairs(objects:GetChildren()) do
+                                if item:IsA("GuiButton") and item.Visible then
+                                    count = count + 1
+                                    if count <= 10 then visibleHeight = visibleHeight + item.AbsoluteSize.Y end
+                                end
+                            end
+                            local gap = layout.Padding.Offset + layout.Padding.Scale * objects.AbsoluteSize.Y
+                            visibleHeight = visibleHeight + math.max(0, math.min(count, 10) - 1) * gap
+                            objects.CanvasSize = UDim2.fromOffset(0, math.ceil(layout.AbsoluteContentSize.Y))
+                            if open then
+                                Resize(box, {Size = UDim2.new(1, 0, 0, math.ceil(visibleHeight))}, options.tween_time)
+                            end
+                        end
+                        runtime:Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), updateDropdownSize)
+                        runtime:Connect(dropdown.MouseButton1Click, function()
+                            if not open and dropdown_open then return end
+                            open = not open
 
-							local len = (#objects:GetChildren() - 1) * math.max(20, theme.ControlSize + 6)
-							if #objects:GetChildren() - 1 >= 10 then
-								len = 10 * math.max(20, theme.ControlSize + 6)
-								objects.CanvasSize = UDim2.new(0, 0, (#objects:GetChildren() - 1) * 0.1, 0)
-							end
-
-							if open then
-								if dropdown_open then return end
-								dropdown_open = true
-								Resize(box, {Size = UDim2.new(1, 0, 0, len)}, options.tween_time)
+                            if open then
+                                dropdown_open = true
+                                updateDropdownSize()
 								Resize(indicator, {Rotation = 90}, options.tween_time)
 							else
 								dropdown_open = false
@@ -2497,14 +2508,7 @@ function library:AddWindow(title, options)
 								object.BackgroundColor3 = Color3.fromRGB(33, 34, 36)
 							end)
 
-							if open then
-								local len = (#objects:GetChildren() - 1) * math.max(20, theme.ControlSize + 6)
-								if #objects:GetChildren() - 1 >= 10 then
-									len = 10 * math.max(20, theme.ControlSize + 6)
-									objects.CanvasSize = UDim2.new(0, 0, (#objects:GetChildren() - 1) * 0.1, 0)
-								end
-								Resize(box, {Size = UDim2.new(1, 0, 0, len)}, options.tween_time)
-							end
+                            updateDropdownSize()
 
 							runtime:Connect(object.MouseButton1Click, function()
 								if dropdown_open then

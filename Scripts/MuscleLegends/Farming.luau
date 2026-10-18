@@ -1634,6 +1634,178 @@ runtime:Spawn(function(model, health, maxHealth, hitbox, currentHealth, currentM
 	end
 end)
 
+tabs.boss:AddLabel("Boss Webhook:")
+tabs.boss.Webhook = {Queue = {}, Pending = {}, Failed = {}, ChestKeys = setmetatable({}, {__mode = "k"})}
+tabs.boss.Webhook.Input = tabs.boss:AddTextBox("Discord Webhook URL (optional)", function() end, {clear = false})
+tabs.boss.Webhook.Status = tabs.boss:AddLabel("Webhook: Disabled")
+
+_G.SilenceBossWebhookHistory = _G.SilenceBossWebhookHistory or {Seen = {}, Order = {}}
+
+tabs.boss.webhookUrl = function()
+	local text = tabs.boss.Webhook.Input.Text:match("^%s*(.-)%s*$")
+	if text == "" then return nil end
+	local host, path = text:match("^https://([^/]+)(/.*)$")
+	local allowed = { ["discord.com"] = true, ["discordapp.com"] = true,
+		["canary.discord.com"] = true, ["ptb.discord.com"] = true }
+	if not allowed[host] or not path:match("^/api/webhooks/%d+/[%w_-]+$") then return nil, "Invalid Discord webhook URL" end
+	return text
+end
+
+tabs.boss.webhookRequest = function()
+	if type(request) == "function" then return request end
+	if type(http_request) == "function" then return http_request end
+	if type(syn) == "table" and type(syn.request) == "function" then return syn.request end
+	if type(http) == "table" and type(http.request) == "function" then return http.request end
+end
+
+tabs.boss.webhookNumber = function(value)
+	value = tonumber(value) or 0
+	for _, unit in ipairs({{1e18, "qi"}, {1e15, "qa"}, {1e12, "t"}, {1e9, "b"}, {1e6, "m"}, {1e3, "k"}}) do
+		if value >= unit[1] then return (string.format("%.2f", value / unit[1]):gsub("0+$", ""):gsub("%.$", "")) .. unit[2] end
+	end
+	return value == math.floor(value) and string.format("%.0f", value) or tostring(value)
+end
+
+tabs.boss.queueWebhook = function(kind, sequence, content)
+	local state = tabs.boss.Webhook
+	local url = tabs.boss.webhookUrl()
+	if not url then return end
+	if not tabs.boss.webhookRequest() then state.Status.Text = "Webhook: HTTP requests unavailable" return end
+	local key = url .. "|" .. game.JobId .. "|" .. kind .. "|" .. tostring(sequence)
+	if state.Pending[key] or state.Failed[key] or _G.SilenceBossWebhookHistory.Seen[key] then return end
+	if #state.Queue >= 32 then state.Status.Text = "Webhook: Queue full" return end
+	state.Pending[key] = true
+	table.insert(state.Queue, {Url = url, Key = key, Content = content:sub(1, 2000), Attempts = 0, NextAt = 0})
+	state.Status.Text = "Webhook: Queued"
+end
+
+tabs.boss.observeWebhookSpawn = function()
+	if workspace:GetAttribute("BossActive") ~= true then return end
+	local sequence = workspace:GetAttribute("BossSpawnSequence")
+	local name = workspace:GetAttribute("BossDisplayName")
+	local health = tonumber(workspace:GetAttribute("BossMaxHealth"))
+	if sequence == nil or type(name) ~= "string" or not health or health <= 0 then return end
+	tabs.boss.queueWebhook("spawn", sequence, name .. " Spawned!\nHealth: " .. tabs.boss.webhookNumber(health))
+end
+
+tabs.boss.webhookRewards = function(rewards)
+	local lines = {}
+	if type(rewards) ~= "table" then return lines end
+	for _, reward in ipairs(rewards) do
+		if type(reward) == "table" and type(reward.DisplayName) == "string"
+			and type(reward.Amount) == "number" and reward.Amount > 0 then
+			local quantity = reward.Amount == 1 and reward.Guaranteed ~= true and ""
+				or tabs.boss.webhookNumber(reward.Amount) .. " "
+			table.insert(lines, "- " .. quantity .. reward.DisplayName)
+		end
+	end
+	return lines
+end
+
+tabs.boss.observeWebhookRewards = function(chest, rewards)
+	if typeof(chest) ~= "Instance" or not chest:IsA("Model") then return end
+	local rarity = chest:GetAttribute("BossRarityIndex")
+	if type(rarity) ~= "number" then return end
+	local lines = tabs.boss.webhookRewards(rewards)
+	if #lines == 0 then return end
+	local config = tabs.boss.Data.BossConfig
+	local entry = config and config.RARITIES and config.RARITIES[rarity]
+	local fallback = ({"Common", "Rare", "Epic", "Legendary", "Mythic", "Rainbow"})[rarity]
+	local name = entry and (entry.DisplayName or entry.Name) or (fallback and fallback .. " Boss")
+	if not name then return end
+	local state = tabs.boss.Webhook
+	state.ChestKeys[chest] = state.ChestKeys[chest]
+		or tostring(workspace:GetAttribute("BossResultSequence") or workspace:GetAttribute("BossSpawnSequence")) .. ":" .. rarity
+	tabs.boss.queueWebhook("defeated", state.ChestKeys[chest], name .. " Defeated!\nRewards:\n" .. table.concat(lines, "\n"))
+end
+
+tabs.boss.processWebhook = function()
+	local state = tabs.boss.Webhook
+	local item = state.Queue[1]
+	if not item or os.clock() < item.NextAt then return end
+	if item.Url ~= tabs.boss.webhookUrl() then
+		state.Pending[item.Key] = nil
+		table.remove(state.Queue, 1)
+		return
+	end
+	local send = tabs.boss.webhookRequest()
+	if not send then state.Status.Text = "Webhook: HTTP requests unavailable" return end
+	item.Attempts = item.Attempts + 1
+	local httpService = game:GetService("HttpService")
+	local success, response = pcall(function()
+		return send({Url = item.Url .. "?wait=true", Method = "POST",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = httpService:JSONEncode({content = item.Content, allowed_mentions = {parse = {}}})})
+	end)
+	if not runtime.Alive then return end
+	local code = success and type(response) == "table" and tonumber(response.StatusCode or response.Status)
+	if code and code >= 200 and code < 300 then
+		local history = _G.SilenceBossWebhookHistory
+		history.Seen[item.Key] = true
+		table.insert(history.Order, item.Key)
+		if #history.Order > 200 then history.Seen[table.remove(history.Order, 1)] = nil end
+		state.Pending[item.Key] = nil
+		table.remove(state.Queue, 1)
+		state.Status.Text = "Webhook: Sent"
+		return
+	end
+	local retry = not code or code == 408 or code == 429 or code >= 500
+	if retry and item.Attempts < 3 then
+		local delay = 5 * item.Attempts
+		if code == 429 then
+			local decoded, body = pcall(function() return httpService:JSONDecode(response.Body) end)
+			if decoded and type(body) == "table" then delay = math.max(delay, tonumber(body.retry_after) or 0) end
+		end
+		item.NextAt = os.clock() + delay
+		state.Status.Text = "Webhook: Retrying"
+	else
+		state.Pending[item.Key] = nil
+		state.Failed[item.Key] = true
+		table.remove(state.Queue, 1)
+		state.Status.Text = "Webhook: " .. (code and ("HTTP " .. code) or "Request failed")
+	end
+end
+
+runtime:Connect(tabs.boss.Webhook.Input:GetPropertyChangedSignal("Text"), function()
+	local url, message = tabs.boss.webhookUrl()
+	tabs.boss.Webhook.Status.Text = url and "Webhook: Ready" or ("Webhook: " .. (message or "Disabled"))
+	if url then runtime:Defer(tabs.boss.observeWebhookSpawn) end
+end)
+
+tabs.boss.Webhook.ResultSequence = workspace:GetAttribute("BossResultSequence")
+tabs.boss.observeWebhookDespawn = function()
+	local state = tabs.boss.Webhook
+	local sequence = workspace:GetAttribute("BossResultSequence")
+	if sequence == nil or sequence == state.ResultSequence then return end
+	state.ResultSequence = sequence
+	if workspace:GetAttribute("BossResultKind") ~= "Survived" then return end
+	local rarity = workspace:GetAttribute("BossResultRarity")
+	if type(rarity) ~= "number" then return end
+	local config = tabs.boss.Data.BossConfig
+	local entry = config and config.RARITIES and config.RARITIES[rarity]
+	local fallback = ({"Common", "Rare", "Epic", "Legendary", "Mythic", "Rainbow"})[rarity]
+	local name = entry and (entry.DisplayName or entry.Name) or (fallback and fallback .. " Boss")
+	if name then tabs.boss.queueWebhook("despawn", sequence, name .. " Despawned!") end
+end
+runtime:Connect(workspace:GetAttributeChangedSignal("BossResultSequence"), tabs.boss.observeWebhookDespawn)
+
+runtime:Connect(workspace:GetAttributeChangedSignal("BossSpawnSequence"), tabs.boss.observeWebhookSpawn)
+runtime:Connect(workspace:GetAttributeChangedSignal("BossActive"), tabs.boss.observeWebhookSpawn)
+runtime:Connect(workspace:GetAttributeChangedSignal("BossMaxHealth"), tabs.boss.observeWebhookSpawn)
+
+runtime:Spawn(function()
+	local events = game:GetService("ReplicatedStorage"):WaitForChild("rEvents")
+	local event = events:WaitForChild("bossChestOpenedEvent", 15)
+	if event and event:IsA("RemoteEvent") then runtime:Connect(event.OnClientEvent, tabs.boss.observeWebhookRewards) end
+end)
+
+runtime:Spawn(function()
+	while runtime.Alive do
+		tabs.boss.processWebhook()
+		task.wait(0.5)
+	end
+end)
+
 tabs.boss.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Boss", function(state)
 	if state and tabs.boss.Halloween and tabs.boss.Halloween.Data.Running then
 		tabs.boss.Halloween.AutoFarmSwitch:Set(false)
@@ -2365,7 +2537,7 @@ tabs.other.ReconnectSwitch = tabs.other:AddSwitch("Auto Reconnect (if you discon
 end)
 tabs.other.ReconnectSwitch:SetConfigKey("Other.AutoReconnect")
 
-tabs.other:AddLabel("Continueing Farming will require a Config Profile AND the Script in Autoexecute Folder.")
+tabs.other:AddLabel("Continueing Farming will require a Config Profile AND the Script in Autoexecute Folder. It does NOT work on every Executor!")
 
 pcall(function()
     runtime:Connect(game:GetService("GuiService").ErrorMessageChanged, tabs.other.checkDisconnect)

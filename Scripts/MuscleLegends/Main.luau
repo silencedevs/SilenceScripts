@@ -2874,6 +2874,178 @@ runtime:Spawn(function(model, health, maxHealth, hitbox, currentHealth, currentM
 	end
 end)
 
+tabs.boss:AddLabel("Boss Webhook:")
+tabs.boss.Webhook = {Queue = {}, Pending = {}, Failed = {}, ChestKeys = setmetatable({}, {__mode = "k"})}
+tabs.boss.Webhook.Input = tabs.boss:AddTextBox("Discord Webhook URL (optional)", function() end, {clear = false})
+tabs.boss.Webhook.Status = tabs.boss:AddLabel("Webhook: Disabled")
+
+_G.SilenceBossWebhookHistory = _G.SilenceBossWebhookHistory or {Seen = {}, Order = {}}
+
+tabs.boss.webhookUrl = function()
+	local text = tabs.boss.Webhook.Input.Text:match("^%s*(.-)%s*$")
+	if text == "" then return nil end
+	local host, path = text:match("^https://([^/]+)(/.*)$")
+	local allowed = { ["discord.com"] = true, ["discordapp.com"] = true,
+		["canary.discord.com"] = true, ["ptb.discord.com"] = true }
+	if not allowed[host] or not path:match("^/api/webhooks/%d+/[%w_-]+$") then return nil, "Invalid Discord webhook URL" end
+	return text
+end
+
+tabs.boss.webhookRequest = function()
+	if type(request) == "function" then return request end
+	if type(http_request) == "function" then return http_request end
+	if type(syn) == "table" and type(syn.request) == "function" then return syn.request end
+	if type(http) == "table" and type(http.request) == "function" then return http.request end
+end
+
+tabs.boss.webhookNumber = function(value)
+	value = tonumber(value) or 0
+	for _, unit in ipairs({{1e18, "qi"}, {1e15, "qa"}, {1e12, "t"}, {1e9, "b"}, {1e6, "m"}, {1e3, "k"}}) do
+		if value >= unit[1] then return (string.format("%.2f", value / unit[1]):gsub("0+$", ""):gsub("%.$", "")) .. unit[2] end
+	end
+	return value == math.floor(value) and string.format("%.0f", value) or tostring(value)
+end
+
+tabs.boss.queueWebhook = function(kind, sequence, content)
+	local state = tabs.boss.Webhook
+	local url = tabs.boss.webhookUrl()
+	if not url then return end
+	if not tabs.boss.webhookRequest() then state.Status.Text = "Webhook: HTTP requests unavailable" return end
+	local key = url .. "|" .. game.JobId .. "|" .. kind .. "|" .. tostring(sequence)
+	if state.Pending[key] or state.Failed[key] or _G.SilenceBossWebhookHistory.Seen[key] then return end
+	if #state.Queue >= 32 then state.Status.Text = "Webhook: Queue full" return end
+	state.Pending[key] = true
+	table.insert(state.Queue, {Url = url, Key = key, Content = content:sub(1, 2000), Attempts = 0, NextAt = 0})
+	state.Status.Text = "Webhook: Queued"
+end
+
+tabs.boss.observeWebhookSpawn = function()
+	if workspace:GetAttribute("BossActive") ~= true then return end
+	local sequence = workspace:GetAttribute("BossSpawnSequence")
+	local name = workspace:GetAttribute("BossDisplayName")
+	local health = tonumber(workspace:GetAttribute("BossMaxHealth"))
+	if sequence == nil or type(name) ~= "string" or not health or health <= 0 then return end
+	tabs.boss.queueWebhook("spawn", sequence, name .. " Spawned!\nHealth: " .. tabs.boss.webhookNumber(health))
+end
+
+tabs.boss.webhookRewards = function(rewards)
+	local lines = {}
+	if type(rewards) ~= "table" then return lines end
+	for _, reward in ipairs(rewards) do
+		if type(reward) == "table" and type(reward.DisplayName) == "string"
+			and type(reward.Amount) == "number" and reward.Amount > 0 then
+			local quantity = reward.Amount == 1 and reward.Guaranteed ~= true and ""
+				or tabs.boss.webhookNumber(reward.Amount) .. " "
+			table.insert(lines, "- " .. quantity .. reward.DisplayName)
+		end
+	end
+	return lines
+end
+
+tabs.boss.observeWebhookRewards = function(chest, rewards)
+	if typeof(chest) ~= "Instance" or not chest:IsA("Model") then return end
+	local rarity = chest:GetAttribute("BossRarityIndex")
+	if type(rarity) ~= "number" then return end
+	local lines = tabs.boss.webhookRewards(rewards)
+	if #lines == 0 then return end
+	local config = tabs.boss.Data.BossConfig
+	local entry = config and config.RARITIES and config.RARITIES[rarity]
+	local fallback = ({"Common", "Rare", "Epic", "Legendary", "Mythic", "Rainbow"})[rarity]
+	local name = entry and (entry.DisplayName or entry.Name) or (fallback and fallback .. " Boss")
+	if not name then return end
+	local state = tabs.boss.Webhook
+	state.ChestKeys[chest] = state.ChestKeys[chest]
+		or tostring(workspace:GetAttribute("BossResultSequence") or workspace:GetAttribute("BossSpawnSequence")) .. ":" .. rarity
+	tabs.boss.queueWebhook("defeated", state.ChestKeys[chest], name .. " Defeated!\nRewards:\n" .. table.concat(lines, "\n"))
+end
+
+tabs.boss.processWebhook = function()
+	local state = tabs.boss.Webhook
+	local item = state.Queue[1]
+	if not item or os.clock() < item.NextAt then return end
+	if item.Url ~= tabs.boss.webhookUrl() then
+		state.Pending[item.Key] = nil
+		table.remove(state.Queue, 1)
+		return
+	end
+	local send = tabs.boss.webhookRequest()
+	if not send then state.Status.Text = "Webhook: HTTP requests unavailable" return end
+	item.Attempts = item.Attempts + 1
+	local httpService = game:GetService("HttpService")
+	local success, response = pcall(function()
+		return send({Url = item.Url .. "?wait=true", Method = "POST",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = httpService:JSONEncode({content = item.Content, allowed_mentions = {parse = {}}})})
+	end)
+	if not runtime.Alive then return end
+	local code = success and type(response) == "table" and tonumber(response.StatusCode or response.Status)
+	if code and code >= 200 and code < 300 then
+		local history = _G.SilenceBossWebhookHistory
+		history.Seen[item.Key] = true
+		table.insert(history.Order, item.Key)
+		if #history.Order > 200 then history.Seen[table.remove(history.Order, 1)] = nil end
+		state.Pending[item.Key] = nil
+		table.remove(state.Queue, 1)
+		state.Status.Text = "Webhook: Sent"
+		return
+	end
+	local retry = not code or code == 408 or code == 429 or code >= 500
+	if retry and item.Attempts < 3 then
+		local delay = 5 * item.Attempts
+		if code == 429 then
+			local decoded, body = pcall(function() return httpService:JSONDecode(response.Body) end)
+			if decoded and type(body) == "table" then delay = math.max(delay, tonumber(body.retry_after) or 0) end
+		end
+		item.NextAt = os.clock() + delay
+		state.Status.Text = "Webhook: Retrying"
+	else
+		state.Pending[item.Key] = nil
+		state.Failed[item.Key] = true
+		table.remove(state.Queue, 1)
+		state.Status.Text = "Webhook: " .. (code and ("HTTP " .. code) or "Request failed")
+	end
+end
+
+runtime:Connect(tabs.boss.Webhook.Input:GetPropertyChangedSignal("Text"), function()
+	local url, message = tabs.boss.webhookUrl()
+	tabs.boss.Webhook.Status.Text = url and "Webhook: Ready" or ("Webhook: " .. (message or "Disabled"))
+	if url then runtime:Defer(tabs.boss.observeWebhookSpawn) end
+end)
+
+tabs.boss.Webhook.ResultSequence = workspace:GetAttribute("BossResultSequence")
+tabs.boss.observeWebhookDespawn = function()
+	local state = tabs.boss.Webhook
+	local sequence = workspace:GetAttribute("BossResultSequence")
+	if sequence == nil or sequence == state.ResultSequence then return end
+	state.ResultSequence = sequence
+	if workspace:GetAttribute("BossResultKind") ~= "Survived" then return end
+	local rarity = workspace:GetAttribute("BossResultRarity")
+	if type(rarity) ~= "number" then return end
+	local config = tabs.boss.Data.BossConfig
+	local entry = config and config.RARITIES and config.RARITIES[rarity]
+	local fallback = ({"Common", "Rare", "Epic", "Legendary", "Mythic", "Rainbow"})[rarity]
+	local name = entry and (entry.DisplayName or entry.Name) or (fallback and fallback .. " Boss")
+	if name then tabs.boss.queueWebhook("despawn", sequence, name .. " Despawned!") end
+end
+runtime:Connect(workspace:GetAttributeChangedSignal("BossResultSequence"), tabs.boss.observeWebhookDespawn)
+
+runtime:Connect(workspace:GetAttributeChangedSignal("BossSpawnSequence"), tabs.boss.observeWebhookSpawn)
+runtime:Connect(workspace:GetAttributeChangedSignal("BossActive"), tabs.boss.observeWebhookSpawn)
+runtime:Connect(workspace:GetAttributeChangedSignal("BossMaxHealth"), tabs.boss.observeWebhookSpawn)
+
+runtime:Spawn(function()
+	local events = game:GetService("ReplicatedStorage"):WaitForChild("rEvents")
+	local event = events:WaitForChild("bossChestOpenedEvent", 15)
+	if event and event:IsA("RemoteEvent") then runtime:Connect(event.OnClientEvent, tabs.boss.observeWebhookRewards) end
+end)
+
+runtime:Spawn(function()
+	while runtime.Alive do
+		tabs.boss.processWebhook()
+		task.wait(0.5)
+	end
+end)
+
 tabs.boss.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Boss", function(state)
 	if state and tabs.boss.Halloween and tabs.boss.Halloween.Data.Running then
 		tabs.boss.Halloween.AutoFarmSwitch:Set(false)
@@ -3123,6 +3295,254 @@ tabs.boss.Halloween.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Halloween Bo
 			task.wait(model and 0.03 or 0.25)
 		end
 	end, tabs.boss.Halloween.Data.Generation)
+end)
+
+tabs.inventory:AddHeading("Crystals:")
+
+tabs.inventory.Crystals = {
+	Catalog = services.ReplicatedStorage.shared.catalogs:WaitForChild("crystalChances"),
+	Remote = services.ReplicatedStorage.rEvents:WaitForChild("openCrystalRemote"),
+	Settings = {}, Dirty = {}, RetryAt = {}, Selected = nil, Amount = 1, Running = false, Rendering = false,
+	Options = {}
+}
+
+tabs.inventory.crystalEntries = function(name)
+	local entries, rarest = {}, math.huge
+	local folder = name and tabs.inventory.Crystals.Catalog:FindFirstChild(name)
+	if not folder then return entries end
+	for _, item in ipairs(folder:GetChildren()) do
+		local object = item:IsA("ObjectValue") and item.Value
+		local itemName = item:GetAttribute("ItemName") or (object and object.Name)
+		local kind = item:GetAttribute("ItemKind")
+		local chance = item:FindFirstChild("chanceValue")
+		if type(itemName) == "string" and (kind == "Pet" or kind == "Aura") then
+			local entry = {Name = itemName, Kind = kind, Chance = chance and chance.Value or 0,
+				Eligible = item:GetAttribute("AutoSellEligible") == true,
+				Protected = item:GetAttribute("AutoSellProtected") == true}
+			table.insert(entries, entry)
+			if kind == "Pet" then rarest = math.min(rarest, entry.Chance) end
+		end
+	end
+	for _, entry in ipairs(entries) do
+		if entry.Kind == "Pet" and entry.Chance == rarest then entry.Protected = true end
+	end
+	table.sort(entries, function(a, b) return a.Name:lower() < b.Name:lower() end)
+	return entries
+end
+
+tabs.inventory.normalizeCrystalSetting = function(name, value)
+	value = type(value) == "table" and value or {}
+	local result = {Enabled = value.Enabled == true, Pets = {}, Auras = {}}
+	for _, entry in ipairs(tabs.inventory.crystalEntries(name)) do
+		local key = entry.Kind == "Pet" and "Pets" or "Auras"
+		if entry.Eligible and not entry.Protected and type(value[key]) == "table" and value[key][entry.Name] == true then
+			result[key][entry.Name] = true
+		end
+	end
+	return result
+end
+
+tabs.inventory.getCrystalSetting = function(name)
+	local state = tabs.inventory.Crystals
+	if not state.Settings[name] then
+		local success, setting = pcall(function()
+			return require(services.ReplicatedStorage.packages.ReplicatorClient).get("Data"):TryIndex({"crystalAutoSell", name})
+		end)
+		state.Settings[name] = tabs.inventory.normalizeCrystalSetting(name, success and setting or nil)
+	end
+	return state.Settings[name]
+end
+
+tabs.inventory.markCrystalSetting = function(name)
+	local state = tabs.inventory.Crystals
+	state.Dirty[name] = (state.Dirty[name] or 0) + 1
+	state.RetryAt[name] = 0
+	state.SellStatus.Text = "Auto Sell: Saving"
+end
+
+tabs.inventory.renderCrystalSetting = function()
+	local state = tabs.inventory.Crystals
+	state.Rendering = true
+	state.SellDropdown:Clear()
+	state.Options = {}
+	local selected = {}
+	local setting = state.Selected and tabs.inventory.getCrystalSetting(state.Selected)
+	if setting then
+		for _, entry in ipairs(tabs.inventory.crystalEntries(state.Selected)) do
+			local key = entry.Kind == "Pet" and "Pets" or "Auras"
+			local enabled = setting[key][entry.Name] == true
+			local locked = entry.Protected or not entry.Eligible
+			local label = (enabled and "[x] " or "[ ] ") .. entry.Name
+				.. (entry.Kind == "Aura" and " (Aura)" or "") .. (locked and " (protected)" or "")
+			state.Options[label] = entry
+			state.SellDropdown:Add(label)
+			if enabled then table.insert(selected, entry.Name) end
+		end
+	end
+	state.SellSelection.Text = "Auto Sell Items: " .. (#selected > 0 and table.concat(selected, ", ") or "None")
+	state.SellSwitch:Set(setting ~= nil and setting.Enabled)
+	state.SellStatus.Text = not setting and "Auto Sell: Select a crystal"
+		or (state.Dirty[state.Selected] and "Auto Sell: Saving" or (setting.Enabled and "Auto Sell: Enabled" or "Auto Sell: Disabled"))
+	state.Rendering = false
+end
+
+tabs.inventory.Crystals.Status = tabs.inventory:AddLabel("Hatch: Inactive")
+tabs.inventory.Crystals.Dropdown = tabs.inventory:AddDropdown("Select Crystal", function(name)
+	local state = tabs.inventory.Crystals
+	if not state.Catalog:FindFirstChild(name) then return end
+	state.Selected = name
+	tabs.inventory.renderCrystalSetting()
+end)
+tabs.inventory.Crystals.Dropdown:SetConfigKey("Pets.Crystal")
+
+tabs.inventory.Crystals.AmountDropdown = tabs.inventory:AddDropdown("Hatch Amount", function(value)
+	local amount = tonumber(value:match("^(%d+)x$"))
+	if amount == 1 or amount == 3 or amount == 10 then tabs.inventory.Crystals.Amount = amount end
+end)
+for _, amount in ipairs({"1x", "3x", "10x"}) do tabs.inventory.Crystals.AmountDropdown:Add(amount) end
+tabs.inventory.Crystals.AmountDropdown:SetConfigKey("Pets.CrystalAmount"):SetValue("1x")
+
+tabs.inventory.Crystals.HatchSwitch = tabs.inventory:AddSwitch("Auto Hatch Crystal", function(enabled)
+	tabs.inventory.Crystals.Running = enabled
+	tabs.inventory.Crystals.Status.Text = enabled and "Hatch: Preparing" or "Hatch: Inactive"
+end)
+tabs.inventory.Crystals.HatchSwitch:SetConfigKey("Pets.AutoHatchCrystal")
+tabs.inventory.Crystals.SellStatus = tabs.inventory:AddLabel("Auto Sell: Select a crystal")
+tabs.inventory.Crystals.SellSelection = tabs.inventory:AddLabel("Auto Sell Items: None")
+tabs.inventory.Crystals.SellDropdown = tabs.inventory:AddDropdown("Select Auto Sell Items", function(label)
+	local state = tabs.inventory.Crystals
+	local entry = state.Options[label]
+	if not state.Selected or not entry then return end
+	if entry.Protected or not entry.Eligible then
+		state.SellStatus.Text = "Auto Sell: This item is protected by the game"
+		return
+	end
+	local key = entry.Kind == "Pet" and "Pets" or "Auras"
+	local setting = tabs.inventory.getCrystalSetting(state.Selected)
+	setting[key][entry.Name] = setting[key][entry.Name] ~= true or nil
+	tabs.inventory.markCrystalSetting(state.Selected)
+	tabs.inventory.renderCrystalSetting()
+end)
+tabs.inventory.Crystals.SellDropdown:SetConfigKey("Pets.CrystalAutoSellLastItem")
+
+tabs.inventory.Crystals.SellSwitch = tabs.inventory:AddSwitch("Auto Sell", function(enabled)
+	local state = tabs.inventory.Crystals
+	if state.Rendering then return end
+	if not state.Selected then
+		state.Rendering = true
+		state.SellSwitch:Set(false)
+		state.Rendering = false
+		state.SellStatus.Text = "Auto Sell: Select a crystal first"
+		return
+	end
+	tabs.inventory.getCrystalSetting(state.Selected).Enabled = enabled
+	tabs.inventory.markCrystalSetting(state.Selected)
+end)
+tabs.inventory.Crystals.SellSwitch:SetConfigKey("Pets.CrystalAutoSellEnabled")
+
+tabs.inventory.refreshCrystals = function()
+	local state, names = tabs.inventory.Crystals, {}
+	for _, folder in ipairs(state.Catalog:GetChildren()) do table.insert(names, folder.Name) end
+	table.sort(names, function(a, b) return a:lower() < b:lower() end)
+	state.Dropdown:Refresh(names)
+	if state.Selected and state.Catalog:FindFirstChild(state.Selected) then
+		state.Dropdown:SetValue(state.Selected)
+	else
+		state.Selected = nil
+		tabs.inventory.renderCrystalSetting()
+	end
+end
+runtime:Connect(tabs.inventory.Crystals.Catalog.ChildAdded, tabs.inventory.refreshCrystals)
+runtime:Connect(tabs.inventory.Crystals.Catalog.ChildRemoved, tabs.inventory.refreshCrystals)
+tabs.inventory.refreshCrystals()
+
+utils.silence:RegisterConfig("Pets.CrystalAutoSellSettings", function()
+	local settings = {}
+	for name, value in pairs(tabs.inventory.Crystals.Settings) do
+		settings[name] = tabs.inventory.normalizeCrystalSetting(name, value)
+	end
+	return settings
+end, function(values)
+	if type(values) ~= "table" then return end
+	for name, value in pairs(values) do
+		if tabs.inventory.Crystals.Catalog:FindFirstChild(name) and type(value) == "table" then
+			tabs.inventory.Crystals.Settings[name] = tabs.inventory.normalizeCrystalSetting(name, value)
+			tabs.inventory.markCrystalSetting(name)
+		end
+	end
+	tabs.inventory.renderCrystalSetting()
+end)
+
+utils.runtime.crystalConfigGetter = utils.silence.GetConfigValues
+utils.runtime.crystalConfigSetter = utils.silence.ApplyConfigValues
+function utils.silence:GetConfigValues()
+	local values = utils.runtime.crystalConfigGetter(self)
+	values["Pets.CrystalAutoSellLastItem"] = nil
+	return values
+end
+function utils.silence:ApplyConfigValues(values)
+	local restored = {}
+	for key, value in pairs(values) do
+		if key ~= "Pets.CrystalAutoSellLastItem" then restored[key] = value end
+	end
+	return utils.runtime.crystalConfigSetter(self, restored)
+end
+
+tabs.inventory.saveCrystalSetting = function(name)
+	local state = tabs.inventory.Crystals
+	local revision = state.Dirty[name]
+	local setting = tabs.inventory.normalizeCrystalSetting(name, tabs.inventory.getCrystalSetting(name))
+	local success, result = pcall(function() return state.Remote:InvokeServer("saveAutoSell", name, setting) end)
+	if not runtime.Alive then return end
+	if success and type(result) == "table" and result.Ok == true and type(result.Setting) == "table" then
+		if state.Dirty[name] == revision then
+			state.Settings[name] = tabs.inventory.normalizeCrystalSetting(name, result.Setting)
+			state.Dirty[name] = nil
+			if state.Selected == name then tabs.inventory.renderCrystalSetting() end
+		end
+	else
+		state.RetryAt[name] = os.clock() + 5
+		if state.Selected == name then state.SellStatus.Text = "Auto Sell: Save failed, retrying" end
+	end
+end
+
+tabs.inventory.hatchCrystal = function(name, amount)
+	local state = tabs.inventory.Crystals
+	if amount > 1 then
+		local available, enabled = pcall(function()
+			return require(services.ReplicatedStorage.shared.modules.GlobalFunctions).isBulkCrystalOpenEnabled()
+		end)
+		if not available or not enabled then return false, "Bulk hatch is unavailable" end
+		local result = state.Remote:InvokeServer("openCrystalBulk", name, amount)
+		if type(result) ~= "table" then return false, "No hatch result" end
+		return type(result.Results) == "table" and #result.Results > 0, result.StopReason
+	end
+	local item, rarity, image, color, sold, value, reason = state.Remote:InvokeServer("openCrystal", name)
+	return item ~= nil and rarity ~= nil and image ~= nil, reason
+end
+
+runtime:Spawn(function()
+	while runtime.Alive do
+		local state = tabs.inventory.Crystals
+		for name in pairs(state.Dirty) do
+			if os.clock() >= (state.RetryAt[name] or 0) then tabs.inventory.saveCrystalSetting(name) end
+		end
+		if state.Running then
+			local name, amount = state.Selected, state.Amount
+			if not name then
+				state.Status.Text = "Hatch: Select a crystal"
+			elseif state.Dirty[name] then
+				state.Status.Text = "Hatch: Waiting for auto-sell settings"
+			else
+				local success, opened, reason = pcall(tabs.inventory.hatchCrystal, name, amount)
+				if state.Running and state.Selected == name then
+					state.Status.Text = success and opened and ("Hatch: " .. name .. " | " .. amount .. "x")
+						or ("Hatch: Waiting | " .. tostring(success and (reason or "Check currency, capacity and crystal access") or opened))
+				end
+			end
+		end
+		task.wait(1)
+	end
 end)
 
 tabs.inventory:AddLabel("Pet Shop:")
@@ -3541,6 +3961,7 @@ end
 tabs.teleport:AddLabel("Gyms:")
 
 tabs.teleport.GymLocations = {
+	{name = "Halloween", pos = CFrame.new(5437.915039, 83.205795, 5875.647949)},
 	{name = "Overcharged Gym", pos = CFrame.new(-2941.766, 151.797, 4994.552)},
 	{name = "Industrial gym", pos = CFrame.new(-5254.681641, 58.342850, 4931.850586)},
 	{name = "Jungle Gym", pos = CFrame.new(-8543, 6.8, 2400)},
@@ -3631,7 +4052,7 @@ tabs.info:AddLabel("- HalisAnteo @xyzhalis")
 tabs.info:AddLabel("")
 tabs.info:AddLabel("Silence is Open-Source!")
 tabs.info:AddLabel("")
-tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.2.1]")
+tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.3.0]")
 tabs.info.VersionLabel.TextSize = 20
 tabs.info.VersionLabel.Font = Enum.Font.Arcade
 
