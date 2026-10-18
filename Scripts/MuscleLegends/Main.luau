@@ -1,3 +1,6 @@
+-- Close the standalone shader preview before capturing Main's original lighting
+if _G.SilenceShaderPreview then _G.SilenceShaderPreview:Destroy() end
+
 local services = {
 	Players = game:GetService("Players"),
 	ReplicatedStorage = game:GetService("ReplicatedStorage"),
@@ -575,6 +578,164 @@ tabs.main.TimeDropdown = tabs.main:AddDropdown("Change Time", function(selection
 end)
 tabs.main.TimeDropdown:Add("Night")
 tabs.main.TimeDropdown:Add("Day")
+
+do
+    local function createShaderController()
+        local Lighting = game:GetService("Lighting")
+        local properties = {"Ambient", "OutdoorAmbient", "Brightness", "ClockTime", "ExposureCompensation", "ColorShift_Top", "ColorShift_Bottom", "FogColor", "FogStart", "FogEnd", "EnvironmentDiffuseScale", "EnvironmentSpecularScale", "GlobalShadows"}
+        local atmosphereProperties = {"Density", "Offset", "Color", "Decay", "Glare", "Haze"}
+        local original, originalEffects = {}, {}
+        for _, key in ipairs(properties) do original[key] = Lighting[key] end
+        for _, effect in ipairs(Lighting:GetChildren()) do
+            if effect:IsA("PostEffect") and not effect:IsA("BlurEffect") then originalEffects[effect] = effect.Enabled end
+        end
+        local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+        local ownedAtmosphere = atmosphere == nil
+        if ownedAtmosphere then atmosphere = Instance.new("Atmosphere"); atmosphere.Name = "SilenceShaderAtmosphere" end
+        local originalAtmosphere = {}
+        for _, key in ipairs(atmosphereProperties) do originalAtmosphere[key] = atmosphere[key] end
+        local function rgb(r,g,b) return Color3.fromRGB(r,g,b) end
+        local presets = {
+            {Name="Clean Day", Description="Clear daylight with neutral colors", Time=14, Exposure=.08, Saturation=.08, Contrast=.06, Tint=rgb(255,255,255), Density=.08, Haze=.3},
+            {Name="Soft Realism", Description="Soft daylight, gentle contrast and restrained bloom", Time=14.5, Exposure=.04, Saturation=-.04, Contrast=.10, Tint=rgb(255,249,239), Density=.14, Haze=.7},
+            {Name="Vibrant", Description="Bright colors and a crisp, lively image", Time=13, Exposure=.12, Saturation=.35, Contrast=.13, Tint=rgb(255,253,247), Density=.10, Haze=.2, Bloom=.32},
+            {Name="Golden Hour", Description="Low golden sunlight with warm shadows", Time=17.3, Exposure=.12, Saturation=.15, Contrast=.14, Tint=rgb(255,225,181), Density=.22, Haze=1.2, Air=rgb(255,210,155), Rays=.12},
+            {Name="Warm Sunset", Description="An orange-pink sunset with a soft glow", Time=17.9, Exposure=.05, Saturation=.22, Contrast=.17, Tint=rgb(255,205,177), Density=.28, Haze=1.5, Air=rgb(255,183,151), Bloom=.45},
+            {Name="Tropical", Description="Warm sunshine, turquoise air and saturated greenery", Time=13.5, Exposure=.15, Saturation=.27, Contrast=.10, Tint=rgb(230,255,242), Density=.16, Haze=.7, Air=rgb(174,235,240)},
+            {Name="Arctic", Description="Cold blue daylight with pale, crisp highlights", Time=12, Exposure=.12, Saturation=-.16, Contrast=.15, Tint=rgb(203,231,255), Density=.24, Haze=1.1, Air=rgb(195,225,255)},
+            {Name="Cloudy", Description="Muted overcast lighting and softer shadows", Time=13, Exposure=-.03, Saturation=-.22, Contrast=-.08, Tint=rgb(229,236,243), Density=.30, Haze=1.8, Rays=0, Brightness=1.6},
+            {Name="Cinematic Teal", Description="Cool shadows and warm sunlight", Time=16.5, Exposure=-.05, Saturation=-.15, Contrast=.24, Tint=rgb(199,237,239), Density=.20, Haze=1, Ambient=rgb(62,92,105), Top=rgb(255,177,98)},
+            {Name="Noir", Description="Black and white with deep contrast", Time=16, Exposure=-.12, Saturation=-1, Contrast=.36, Tint=rgb(255,255,255), Density=.20, Haze=1.1, Rays=.02},
+            {Name="Moonlight", Description="A readable blue night scene", Time=0.5, Exposure=.12, Saturation=-.12, Contrast=.15, Tint=rgb(180,204,255), Density=.18, Haze=.7, Ambient=rgb(70,84,122), Brightness=2, Rays=0},
+            {Name="Cyberpunk", Description="Violet night lighting with bright colored highlights", Time=21, Exposure=.02, Saturation=.40, Contrast=.23, Tint=rgb(220,178,255), Density=.26, Haze=1.6, Air=rgb(161,105,224), Ambient=rgb(92,45,140), Bloom=.65, Rays=0},
+            {Name="Neon Purple", Description="An exaggerated purple glow for a stylized look", Time=19.2, Exposure=.08, Saturation=.45, Contrast=.18, Tint=rgb(227,169,255), Density=.22, Haze=1.3, Air=rgb(201,145,255), Bloom=.85, Rays=.02},
+            {Name="Dreamy", Description="Pink tones, low contrast and soft highlights", Time=16.7, Exposure=.18, Saturation=.08, Contrast=-.12, Tint=rgb(255,218,241), Density=.24, Haze=1.8, Air=rgb(249,207,235), Bloom=.65},
+            {Name="Soft Pastel", Description="Gentle colors with a light, airy feel", Time=14, Exposure=.16, Saturation=-.24, Contrast=-.10, Tint=rgb(255,235,224), Density=.15, Haze=1, Bloom=.25},
+            {Name="Retro Film", Description="Warm faded colors and lifted shadows", Time=15.7, Exposure=.02, Saturation=-.32, Contrast=-.06, Tint=rgb(255,229,185), Density=.19, Haze=1.1, Ambient=rgb(111,99,82)},
+            {Name="Autumn", Description="Copper tones and warm afternoon light", Time=16.8, Exposure=.03, Saturation=.12, Contrast=.16, Tint=rgb(255,207,158), Density=.24, Haze=1.2, Air=rgb(232,186,137)},
+            {Name="Desert", Description="Hot golden light with dusty atmosphere", Time=15.3, Exposure=.18, Saturation=.08, Contrast=.20, Tint=rgb(255,229,173), Density=.32, Haze=2, Air=rgb(231,203,158), Rays=.10},
+            {Name="Horror", Description="Dark green fog and subdued colors", Time=23, Exposure=-.22, Saturation=-.40, Contrast=.28, Tint=rgb(185,218,187), Density=.40, Haze=2.4, Air=rgb(122,156,132), Ambient=rgb(40,62,49), Brightness=1.2, Rays=0},
+            {Name="Volcanic", Description="Dark red and orange lighting with strong highlights", Time=18.5, Exposure=-.12, Saturation=.22, Contrast=.30, Tint=rgb(255,171,133), Density=.32, Haze=1.9, Air=rgb(210,104,72), Ambient=rgb(108,42,32), Bloom=.60, Rays=.02},
+        }
+        local correction = Instance.new("ColorCorrectionEffect")
+        correction.Name = "SilenceShaderColor"
+        local bloom = Instance.new("BloomEffect")
+        bloom.Name = "SilenceShaderBloom"
+        local rays = Instance.new("SunRaysEffect")
+        rays.Name = "SilenceShaderRays"
+        local depth = Instance.new("DepthOfFieldEffect")
+        depth.Name = "SilenceShaderDepth"
+        local effects = {correction,bloom,rays,depth}
+        for _, effect in ipairs(effects) do effect.Enabled=false; effect.Parent=Lighting end
+        local state={Enabled=false, Index=2, Intensity=75, Bloom=true, Rays=true, Atmosphere=true, Depth=false}
+        local function restore()
+            for _, effect in ipairs(effects) do effect.Enabled=false end
+            for key,value in pairs(original) do Lighting[key]=value end
+            for effect,enabled in pairs(originalEffects) do if effect.Parent then effect.Enabled=enabled end end
+            if ownedAtmosphere then
+                atmosphere.Parent=nil
+            else
+                for key,value in pairs(originalAtmosphere) do atmosphere[key]=value end
+            end
+        end
+        local function mix(a,b,t)
+            if typeof(a)=="Color3" then return a:Lerp(b,t) end
+            return a+(b-a)*t
+        end
+        local function apply()
+            local preset=presets[state.Index]
+            if not state.Enabled or state.Intensity==0 then
+                restore()
+                return
+            end
+            local alpha=state.Intensity/100
+            for effect in pairs(originalEffects) do if effect.Parent then effect.Enabled=false end end
+            local targets={
+                Brightness=preset.Brightness or 2.2, ExposureCompensation=preset.Exposure or 0,
+                Ambient=preset.Ambient or rgb(91,97,109), OutdoorAmbient=preset.Ambient or rgb(125,133,148),
+                ColorShift_Top=preset.Top or rgb(0,0,0), ColorShift_Bottom=rgb(0,0,0),
+                FogColor=preset.Air or rgb(192,218,240), FogStart=0, FogEnd=100000,
+                EnvironmentDiffuseScale=.8,EnvironmentSpecularScale=.7,
+            }
+            for key,value in pairs(targets) do Lighting[key]=mix(original[key],value,alpha) end
+            local clockDelta=(preset.Time-original.ClockTime+12)%24-12
+            Lighting.ClockTime=(original.ClockTime+clockDelta*alpha)%24
+            Lighting.GlobalShadows=true
+            correction.TintColor=mix(Color3.new(1,1,1),preset.Tint,alpha)
+            correction.Contrast=(preset.Contrast or 0)*alpha
+            correction.Saturation=(preset.Saturation or 0)*alpha
+            correction.Brightness=0
+            correction.Enabled=true
+            bloom.Intensity=(preset.Bloom or .22)*alpha
+            bloom.Size=28
+            bloom.Threshold=1.25
+            bloom.Enabled=state.Bloom
+            rays.Intensity=(preset.Rays or .05)*alpha
+            rays.Spread=.75
+            rays.Enabled=state.Rays and rays.Intensity>0
+            depth.FocusDistance=55
+            depth.InFocusRadius=45
+            depth.NearIntensity=.02*alpha
+            depth.FarIntensity=.16*alpha
+            depth.Enabled=state.Depth
+            if state.Atmosphere then
+                atmosphere.Density=mix(ownedAtmosphere and 0 or originalAtmosphere.Density,preset.Density or .15,alpha)
+                atmosphere.Offset=0
+                atmosphere.Color=mix(originalAtmosphere.Color,preset.Air or rgb(199,222,245),alpha)
+                atmosphere.Decay=mix(originalAtmosphere.Decay,preset.Air or rgb(133,153,184),alpha)
+                atmosphere.Glare=.15*alpha
+                atmosphere.Haze=(preset.Haze or .7)*alpha
+                if ownedAtmosphere then atmosphere.Parent=Lighting end
+            elseif ownedAtmosphere then
+                atmosphere.Parent=nil
+            else
+                for key,value in pairs(originalAtmosphere) do atmosphere[key]=value end
+            end
+        end
+        local controller = {Presets = presets, Selected = "Original", Names = {"Original"}}
+        for _, preset in ipairs(presets) do table.insert(controller.Names, preset.Name) end
+        function controller:Select(name)
+            if name == "Original" then
+                state.Enabled = false
+                self.Selected = name
+                restore()
+                return
+            end
+            for index, preset in ipairs(presets) do
+                if preset.Name == name then
+                    state.Index = index
+                    state.Intensity = preset.Intensity or 75
+                    state.Enabled = true
+                    state.Bloom, state.Rays, state.Atmosphere, state.Depth = true, true, true, false
+                    apply()
+                    self.Selected = name
+                    return
+                end
+            end
+            error("Unknown shader preset: " .. tostring(name))
+        end
+        runtime:AddCleanup(function()
+            restore()
+            for _, effect in ipairs(effects) do effect:Destroy() end
+            if ownedAtmosphere then atmosphere:Destroy() end
+        end)
+        return controller
+    end
+    tabs.main.Shaders = createShaderController()
+    tabs.main.ShaderDropdown = tabs.main:AddDropdown("Shader", function(selection)
+        tabs.main.Shaders:Select(selection)
+    end)
+    for _, name in ipairs(tabs.main.Shaders.Names) do tabs.main.ShaderDropdown:Add(name) end
+    tabs.main.ShaderDropdown:SetValue("Original")
+    tabs.main.ShaderButtons = tabs.main:AddHorizontalAlignment()
+    local function stepPreset(direction)
+        local names = tabs.main.Shaders.Names
+        local current = table.find(names, tabs.main.Shaders.Selected) or 1
+        tabs.main.ShaderDropdown:SetValue(names[(current - 1 + direction) % #names + 1])
+    end
+    tabs.main.ShaderButtons:AddButton("Previous", function() stepPreset(-1) end)
+    tabs.main.ShaderButtons:AddButton("Next", function() stepPreset(1) end)
+end
 
 tabs.killing.getTool = function()
 	if not services.Players.LocalPlayer.Character then return end
