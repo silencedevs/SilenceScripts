@@ -80,25 +80,17 @@ function Module:Build(window, settings)
             option.Font = font
         end
     end
-    local function sizeControl(key, title, minimum, maximum)
-        controls[key] = tab:AddSlider(title, function(value)
-            if not syncing then window:SetTheme({[key] = value}) end
-        end, {min = minimum, max = maximum, commitOnRelease = true})
-    end
-    sizeControl("HeadingSize", "Heading size", 10, 30)
-    sizeControl("LabelSize", "Label size", 10, 30)
-    sizeControl("ControlSize", "Control text size", 10, 24)
     tab:AddHeading("Layout")
-    sizeControl("Spacing", "Space between rows", 0, 20)
+    controls.WindowScale = tab:AddSlider("Window Size (%)", function(value)
+        if not syncing then window:SetTheme({WindowScale = value / 100}) end
+    end, {min = 50, max = 150, step = 1, commitOnRelease = true})
     local function sync(theme)
         syncing = true
         for _, key in ipairs({"MainColor", "BackgroundColor", "TextColor"}) do
             controls[key]:Set(theme[key])
         end
         controls.Font:SetValue(theme.Font.Name)
-        for _, key in ipairs({"HeadingSize", "LabelSize", "ControlSize", "Spacing"}) do
-            if not controls[key]:IsDragging() then controls[key]:Set(theme[key]) end
-        end
+        if not controls.WindowScale:IsDragging() then controls.WindowScale:Set(theme.WindowScale * 100) end
         syncing = false
     end
     window:OnThemeChanged(function(theme)
@@ -118,6 +110,15 @@ function Module:Build(window, settings)
     tab:AddLabel("A regular label")
     tab:AddLabel("Hello\nWorld")
     sync(window:GetTheme())
+    if not window.CustomizePreferencesLoaded and not savedLoadError then
+        runtime:Spawn(function()
+            -- Let startup profiles apply before saving the initial appearance
+            for _ = 1, 3 do game:GetService("RunService").Heartbeat:Wait() end
+            dirty = true
+            local ok, err = saveNow()
+            if not ok then status.Text = tostring(err) end
+        end)
+    end
     controls.SaveAppearance = saveNow
     controls.SettingsPath = path
     return tab, controls, content

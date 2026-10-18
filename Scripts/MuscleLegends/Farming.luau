@@ -314,6 +314,30 @@ local function updateRuntimeLabel(tab)
         math.floor(elapsed % 3600 / 60), math.floor(elapsed % 60))
 end
 
+local function resetCalculations(tab)
+    tab.totalElapsed = 0
+    tab.startedAt = os.clock()
+    tab.timerStarted = tab.running and tab.timerStarted
+    tab.nextAverageElapsed = 10
+    for key in pairs(tab.statGains) do
+        tab.statGains[key] = 0
+    end
+    for key, stat in pairs({Rebirths = tab.rebirths, Strength = tab.strength, Durability = tab.durability}) do
+        if tab.statSamples[key] ~= nil then tab.statSamples[key] = stat.Value end
+    end
+    if tab.AverageRate then
+        tab.baselineReady = false
+        tab.timerStarted = false
+        tab.measuredCycles = 0
+        tab.AverageRate.Text = "Average: -- / Hour | -- / Day | -- / Week"
+    else
+        tab.StrengthAverage.Text = "Str Ø: --/s | --/min | --/h | --/d"
+        tab.DurabilityAverage.Text = "Dura Ø: --/s | --/min | --/h | --/d"
+    end
+    tab.updateStats()
+    tab.updateRuntime()
+end
+
 local function getOwnedConfiguredPets()
     local ownedPets = {}
 
@@ -442,14 +466,19 @@ tabs.rebirths.statGains = {Rebirths = 0}
 tabs.rebirths.generation = 0
 tabs.rebirths.adaptive = {
     TargetSeconds = 3,
+    MinRate = 3,
     MaxRate = 50,
-    SendRate = 50,
+    SendRate = 10,
+    ProbeRate = 10,
+    ProbeReps = 10,
+    FeedbackTimeout = 1,
     StrengthPerRep = nil,
     LastTrainingSeconds = nil
 }
 tabs.rebirths.Status = tabs.rebirths:AddLabel("Status: Inactive")
 tabs.rebirths.Runtime = tabs.rebirths:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.rebirths.RebirthStats = tabs.rebirths:AddLabel("Rebirths: " .. formatCurrentStat(tabs.rebirths.rebirths.Value) .. " | Gained: 0")
+tabs.rebirths.RebirthStats:SetAttribute("EleriumUpdateInterval", 0.05)
 tabs.rebirths.AverageRate = tabs.rebirths:AddLabel("Average: -- / Hour | -- / Day | -- / Week")
 tabs.rebirths.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
 
@@ -470,6 +499,10 @@ tabs.rebirths.updateAverage = function()
         formatNumber(hourly), formatNumber(hourly * 24), formatNumber(hourly * 168))
 end
 
+tabs.rebirths:AddButton("Reset Calcs", function()
+    resetCalculations(tabs.rebirths)
+end)
+
 tabs.rebirths.isCurrent = function(generation)
     return tabs.rebirths.running and tabs.rebirths.generation == generation
 end
@@ -482,19 +515,21 @@ tabs.rebirths.equipRebirthPets = function(generation)
     equipBestRebirthPets(function() return tabs.rebirths.isCurrent(generation) end)
 end
 
-tabs.rebirths.updateAdaptiveSpeed = function(cycle)
+tabs.rebirths.updateAdaptiveSpeed = function(cycle, finalSample)
     local adaptive = tabs.rebirths.adaptive
     local now = os.clock()
-    if now - cycle.SampleAt < 0.25 then return end
-    local gain = tabs.rebirths.strength.Value - cycle.StartStrength
-    if gain > 0 and cycle.Sent > 0 then
-
+    if not finalSample and now - cycle.SampleAt < 0.25 then return end
+    local strength = tabs.rebirths.strength.Value
+    local gain = strength - cycle.StartStrength
+    if gain > 0 and cycle.Sent > 0 and (finalSample or strength > cycle.SampleStrength) then
         adaptive.StrengthPerRep = gain / cycle.Sent
-        local remaining = math.max(0, cycle.Target - tabs.rebirths.strength.Value)
-        local seconds = math.max(0.1, adaptive.TargetSeconds - cycle.TrainingSeconds)
-        adaptive.SendRate = math.clamp(remaining / adaptive.StrengthPerRep / seconds, 1, adaptive.MaxRate)
-    elseif cycle.TrainingSeconds >= adaptive.TargetSeconds then
-        adaptive.SendRate = adaptive.MaxRate
+        cycle.SampleStrength = strength
+    end
+    if adaptive.StrengthPerRep and adaptive.StrengthPerRep > 0 then
+        local reps = math.max(1, math.ceil(math.max(0, cycle.Target - cycle.StartStrength) / adaptive.StrengthPerRep))
+        adaptive.SendRate = math.clamp(reps / adaptive.TargetSeconds, adaptive.MinRate, adaptive.MaxRate)
+    else
+        adaptive.SendRate = adaptive.ProbeRate
     end
     cycle.SampleAt = now
 end
@@ -506,6 +541,8 @@ tabs.rebirths.performRebirth = function(generation)
         Rebirths = tabs.rebirths.rebirths.Value,
         SampleAt = os.clock(),
         StartStrength = tabs.rebirths.strength.Value,
+        SampleStrength = tabs.rebirths.strength.Value,
+        LastSentAt = os.clock(),
         Sent = 0,
         Tokens = 0,
         LastAt = os.clock(),
@@ -514,7 +551,9 @@ tabs.rebirths.performRebirth = function(generation)
     }
     adaptive.SendRate = adaptive.StrengthPerRep and math.clamp(
         math.max(0, cycle.Target - cycle.StartStrength) / adaptive.StrengthPerRep / adaptive.TargetSeconds,
-        1, adaptive.MaxRate) or adaptive.MaxRate
+        adaptive.MinRate, adaptive.MaxRate) or adaptive.ProbeRate
+    cycle.RepBudget = adaptive.StrengthPerRep and math.max(adaptive.ProbeReps, math.ceil(
+        math.max(0, cycle.Target - cycle.StartStrength) / adaptive.StrengthPerRep)) or adaptive.ProbeReps
     local lastTrainingAt = os.clock()
     local function needsTraining()
         return tabs.rebirths.isCurrent(generation)
@@ -528,10 +567,27 @@ tabs.rebirths.performRebirth = function(generation)
         if humanoid and humanoid.Health > 0 then
             cycle.TrainingSeconds = cycle.TrainingSeconds + math.max(0, now - lastTrainingAt)
             tabs.rebirths.updateAdaptiveSpeed(cycle)
-            cycle.Sent = cycle.Sent + sendTrainingReps(cycle, adaptive.SendRate, 5, needsTraining)
+            if cycle.Sent >= cycle.RepBudget then
+                cycle.Tokens = 0
+                cycle.LastAt = now
+                if now - cycle.LastSentAt >= adaptive.FeedbackTimeout then
+                    local missing = math.max(0, cycle.Target - tabs.rebirths.strength.Value)
+                    local extra = adaptive.StrengthPerRep and math.ceil(missing / adaptive.StrengthPerRep) or adaptive.ProbeReps
+                    cycle.RepBudget = cycle.Sent + math.clamp(extra, math.ceil(adaptive.ProbeReps / 2), adaptive.ProbeReps)
+                end
+            else
+                local budget = cycle.RepBudget - cycle.Sent
+                local sent = sendTrainingReps(cycle, adaptive.SendRate, 5, function()
+                    if budget <= 0 or not needsTraining() then return false end
+                    budget = budget - 1
+                    return true
+                end)
+                cycle.Sent = cycle.Sent + sent
+                if sent > 0 then cycle.LastSentAt = now end
+            end
             if now - cycle.StatusAt >= 0.25 then
-                tabs.rebirths.Status.Text = "Status: Strength Training | " .. string.format("%.1fs", cycle.TrainingSeconds)
-                    .. " | " .. formatNumber(adaptive.SendRate) .. " reps/s"
+                tabs.rebirths.Status.Text = (cycle.Sent >= cycle.RepBudget and "Status: Waiting for Strength Update | " or "Status: Strength Training | ")
+                    .. string.format("%.1fs", cycle.TrainingSeconds) .. " | " .. formatNumber(adaptive.SendRate) .. " reps/s"
                 cycle.StatusAt = now
             end
         else
@@ -543,6 +599,7 @@ tabs.rebirths.performRebirth = function(generation)
         services.runservice.Heartbeat:Wait()
     end
     if not tabs.rebirths.isCurrent(generation) or tabs.rebirths.rebirths.Value ~= cycle.Rebirths then return end
+    tabs.rebirths.updateAdaptiveSpeed(cycle, true)
     adaptive.LastTrainingSeconds = cycle.TrainingSeconds
     tabs.rebirths.Status.Text = "Status: Switching to Rebirth Pets"
     tabs.rebirths.equipRebirthPets(generation)
@@ -645,7 +702,7 @@ tabs.strength.gainedBaselineSet = false
 tabs.strength.statSamples = {Strength = tabs.strength.strength.Value, Durability = tabs.strength.durability.Value}
 tabs.strength.statGains = {Strength = 0, Durability = 0}
 tabs.strength.initialSendRate = 200
-tabs.strength.maxSendRate = 451
+tabs.strength.maxSendRate = 462
 tabs.strength.sendRate = math.min(tabs.strength.initialSendRate, tabs.strength.maxSendRate)
 tabs.strength.maxBurst = 24
 tabs.strength.Tokens = 0
@@ -658,7 +715,9 @@ tabs.strength.LastAt = os.clock()
 tabs.strength.Status = tabs.strength:AddLabel("Status: Inactive")
 tabs.strength.Runtime = tabs.strength:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.strength.StrengthStats = tabs.strength:AddLabel("Strength: " .. formatCurrentStat(tabs.strength.strength.Value) .. " | Gained: 0")
+tabs.strength.StrengthStats:SetAttribute("EleriumUpdateInterval", 0.02)
 tabs.strength.DurabilityStats = tabs.strength:AddLabel("Durability: " .. formatCurrentStat(tabs.strength.durability.Value) .. " | Gained: 0")
+tabs.strength.DurabilityStats:SetAttribute("EleriumUpdateInterval", 0.02)
 tabs.strength.StrengthAverage = tabs.strength:AddLabel("Str Ø: --/s | --/min | --/h | --/d")
 tabs.strength.DurabilityAverage = tabs.strength:AddLabel("Dura Ø: --/s | --/min | --/h | --/d")
 tabs.strength.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -682,6 +741,10 @@ tabs.strength.updateAverage = function()
     tabs.strength.StrengthAverage.Text = "Str Ø: " .. formatRate(tabs.strength.statGains.Strength / elapsed)
     tabs.strength.DurabilityAverage.Text = "Dura Ø: " .. formatRate(tabs.strength.statGains.Durability / elapsed)
 end
+
+tabs.strength:AddButton("Reset Calcs", function()
+    resetCalculations(tabs.strength)
+end)
 
 tabs.strength.startMeasurement = function()
     if not tabs.strength.running or tabs.strength.timerStarted
@@ -778,7 +841,7 @@ tabs.strength:AddTextBox("Max reps/s: " .. tabs.strength.maxSendRate, function(i
     tabs.strength.sendRate = math.min(tabs.strength.sendRate, tabs.strength.maxSendRate)
 end, {clear = false})
 
-tabs.strength:AddLabel("Recommended Speed: 451, you can always try more.")
+tabs.strength:AddLabel("Recommended Speed: 462, you can always try more.")
 
 tabs.strength.FastRepToggle = tabs.strength:AddSwitch("Fast Rep", function(state)
     recordStatGain(tabs.strength, "Strength", tabs.strength.strength.Value)
@@ -834,7 +897,7 @@ tabs.strength2.gainedBaselineSet = false
 tabs.strength2.statSamples = {Strength = tabs.strength2.strength.Value, Durability = tabs.strength2.durability.Value}
 tabs.strength2.statGains = {Strength = 0, Durability = 0}
 tabs.strength2.initialSendRate = 300
-tabs.strength2.maxSendRate = math.huge
+tabs.strength2.maxSendRate = 480
 tabs.strength2.sendRate = tabs.strength2.initialSendRate
 tabs.strength2.maxBurst = 24
 tabs.strength2.Tokens = 0
@@ -843,8 +906,15 @@ tabs.strength2.resumePing = 300
 tabs.strength2.recoverySeconds = 2
 tabs.strength2.rampInterval = 2
 tabs.strength2.rampStep = 25
+tabs.strength2.minAdaptiveRate = 450
+tabs.strength2.fineRampStep = 2
+tabs.strength2.backoffStep = 4
+tabs.strength2.learnedLimit = false
+tabs.strength2.lastPingSampleAt = os.clock()
+tabs.strength2.lastPingSample = nil
+tabs.strength2.lastPingRise = 0
 tabs.strength2.stableInterval = 60
-tabs.strength2.stableStep = 10
+tabs.strength2.stableStep = 2
 tabs.strength2.stableSince = os.clock()
 tabs.strength2.pingPaused = false
 tabs.strength2.lastRampAt = os.clock()
@@ -852,7 +922,9 @@ tabs.strength2.LastAt = os.clock()
 tabs.strength2.Status = tabs.strength2:AddLabel("Status: Inactive")
 tabs.strength2.Runtime = tabs.strength2:AddLabel("Runtime: 0d 0h 0m 0s")
 tabs.strength2.StrengthStats = tabs.strength2:AddLabel("Strength: " .. formatCurrentStat(tabs.strength2.strength.Value) .. " | Gained: 0")
+tabs.strength2.StrengthStats:SetAttribute("EleriumUpdateInterval", 0.02)
 tabs.strength2.DurabilityStats = tabs.strength2:AddLabel("Durability: " .. formatCurrentStat(tabs.strength2.durability.Value) .. " | Gained: 0")
+tabs.strength2.DurabilityStats:SetAttribute("EleriumUpdateInterval", 0.02)
 tabs.strength2.StrengthAverage = tabs.strength2:AddLabel("Str Ø: --/s | --/min | --/h | --/d")
 tabs.strength2.DurabilityAverage = tabs.strength2:AddLabel("Dura Ø: --/s | --/min | --/h | --/d")
 tabs.strength2.Status.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -876,6 +948,10 @@ tabs.strength2.updateAverage = function()
     tabs.strength2.StrengthAverage.Text = "Str Ø: " .. formatRate(tabs.strength2.statGains.Strength / elapsed)
     tabs.strength2.DurabilityAverage.Text = "Dura Ø: " .. formatRate(tabs.strength2.statGains.Durability / elapsed)
 end
+
+tabs.strength2:AddButton("Reset Calcs", function()
+    resetCalculations(tabs.strength2)
+end)
 
 tabs.strength2.startMeasurement = function()
     if not tabs.strength2.running or tabs.strength2.timerStarted then return end
@@ -907,9 +983,16 @@ tabs.strength2.updateAdaptiveRate = function()
     local tab = tabs.strength2
     local now = os.clock()
     local ping = tab.readPing()
+    tab.sendRate = math.min(tab.sendRate, tab.maxSendRate)
+    if ping and now - tab.lastPingSampleAt >= 1 then
+        tab.lastPingRise = tab.lastPingSample and ping - tab.lastPingSample or 0
+        tab.lastPingSample = ping
+        tab.lastPingSampleAt = now
+    end
     if not ping or ping > tab.pingLimit then
         if not tab.pingPaused then
-            tab.maxSendRate = math.max(1, math.floor(tab.sendRate * 0.95))
+            tab.sendRate = math.max(math.min(tab.minAdaptiveRate, tab.sendRate), tab.sendRate - tab.backoffStep)
+            tab.learnedLimit = true
         end
         tab.pingPaused = true
         tab.stableSince = now
@@ -918,27 +1001,32 @@ tabs.strength2.updateAdaptiveRate = function()
         if ping < tab.resumePing then
             tab.recoveryStartedAt = tab.recoveryStartedAt or now
             if now - tab.recoveryStartedAt >= tab.recoverySeconds then
-                tab.sendRate = math.min(tab.sendRate, tab.maxSendRate)
                 tab.pingPaused = false
                 tab.recoveryStartedAt = nil
                 tab.lastRampAt = now
                 tab.stableSince = now
+                tab.lastPingSample = ping
+                tab.lastPingRise = 0
             end
         else
             tab.recoveryStartedAt = nil
         end
-    elseif tab.maxSendRate < math.huge then
-        if now - tab.stableSince >= tab.stableInterval then
-            tab.sendRate = tab.sendRate + tab.stableStep
-            tab.maxSendRate = tab.sendRate
+    elseif now - tab.lastRampAt >= tab.rampInterval then
+        local pressure = ping >= tab.resumePing or (ping >= 150 and tab.lastPingRise >= 20)
+        if pressure then
+            tab.sendRate = math.max(math.min(tab.minAdaptiveRate, tab.sendRate), tab.sendRate - tab.fineRampStep)
+            tab.learnedLimit = true
+            tab.stableSince = now
+        elseif tab.sendRate < tab.minAdaptiveRate then
+            tab.sendRate = math.min(tab.minAdaptiveRate, tab.sendRate + tab.rampStep)
+            tab.stableSince = now
+        elseif not tab.learnedLimit then
+            tab.sendRate = math.min(tab.maxSendRate, tab.sendRate + tab.fineRampStep)
+            tab.stableSince = now
+        elseif now - tab.stableSince >= tab.stableInterval then
+            tab.sendRate = math.min(tab.maxSendRate, tab.sendRate + tab.stableStep)
             tab.stableSince = now
         end
-    elseif ping < tab.resumePing then
-        if now - tab.lastRampAt >= tab.rampInterval then
-            tab.sendRate = math.min(tab.maxSendRate, tab.sendRate + tab.rampStep)
-            tab.lastRampAt = now
-        end
-    else
         tab.lastRampAt = now
     end
 
@@ -1005,7 +1093,11 @@ tabs.strength2.FastRepToggle = tabs.strength2:AddSwitch("Fast Rep", function(sta
         if tabs.strength.running then tabs.strength.FastRepToggle:Set(false) end
         if tabs.rebirths.running then tabs.rebirths.Switch:Set(false) end
         tabs.strength2.gainedBaselineSet = true
-        tabs.strength2.maxSendRate = math.huge
+        tabs.strength2.maxSendRate = 480
+        tabs.strength2.learnedLimit = false
+        tabs.strength2.lastPingSampleAt = os.clock()
+        tabs.strength2.lastPingSample = nil
+        tabs.strength2.lastPingRise = 0
         tabs.strength2.sendRate = tabs.strength2.initialSendRate
         tabs.strength2.pingPaused = false
         tabs.strength2.recoveryStartedAt = nil
@@ -2579,6 +2671,6 @@ runtime:Defer(function()
     local tabBar = frame.TabSelection.TabButtons
     local layout = tabBar:FindFirstChildOfClass("UIListLayout")
     local padding = frame.AbsoluteSize.X - tabBar.AbsoluteWindowSize.X
-    silence:SetSize(Vector2.new(math.ceil(layout.AbsoluteContentSize.X + padding), frame.Size.Y.Offset))
+    silence:SetSize(Vector2.new(math.ceil((layout.AbsoluteContentSize.X + padding) / (silence.GetScale and silence:GetScale() or 1)), frame.Size.Y.Offset))
     tabBar.CanvasPosition = Vector2.zero
 end)

@@ -29,12 +29,32 @@ function runtime:Delay(seconds, callback, ...)
     return self:Schedule(function(thread) nativeTask.delay(seconds, thread) end, callback, ...)
 end
 
-function runtime:Connect(signal, callback)
+function runtime:Connect(signal, callback, owner)
     if not self.Alive then return end
     local connection = signal:Connect(function(...)
         self:Spawn(callback, ...)
     end)
     self.Connections[connection] = true
+    if owner then
+        self.Owners = self.Owners or setmetatable({}, {__mode = "k"})
+        local group = self.Owners[owner]
+        if not group then
+            group = {}
+            self.Owners[owner] = group
+            local destroying
+            destroying = owner.Destroying:Connect(function()
+                for owned in pairs(group) do
+                    owned:Disconnect()
+                    self.Connections[owned] = nil
+                end
+                destroying:Disconnect()
+                self.Connections[destroying] = nil
+                self.Owners[owner] = nil
+            end)
+            self.Connections[destroying] = true
+        end
+        group[connection] = true
+    end
     return connection
 end
 
@@ -65,6 +85,7 @@ function runtime:Destroy()
         pcall(self.Cleanups[index])
     end
     table.clear(self.Cleanups)
+    if self.Owners then table.clear(self.Owners) end
     if _G.SilenceRuntime == self then _G.SilenceRuntime = nil end
 end
 
@@ -117,13 +138,6 @@ do
 		end
 	end
 
-	if not isSolara then
-		for _,v in pairs(game:GetDescendants()) do
-			if v.Name == "imgui" and v:IsA("ScreenGui") then
-				pcall(function() v:Destroy() end)
-			end
-		end
-	end
 end
 
 local imgui = Instance.new("ScreenGui")
@@ -1043,18 +1057,18 @@ local function ripple(button, x, y)
 		circle.Parent = button
 		circle.ZIndex = 1000
 
-		local new_x = x - circle.AbsolutePosition.X
-		local new_y = y - circle.AbsolutePosition.Y
+		local scale = 1
+        local ancestor = button
+        while ancestor do
+            local scaler = ancestor:FindFirstChildOfClass("UIScale")
+            if scaler then scale = scale * scaler.Scale end
+            ancestor = ancestor.Parent
+        end
+        local new_x = (x - circle.AbsolutePosition.X) / scale
+        local new_y = (y - circle.AbsolutePosition.Y) / scale
 		circle.Position = UDim2.new(0, new_x, 0, new_y)
 
-		local size = 0
-		if button.AbsoluteSize.X > button.AbsoluteSize.Y then
-			size = button.AbsoluteSize.X * 1.5
-		elseif button.AbsoluteSize.X < button.AbsoluteSize.Y then
-			size = button.AbsoluteSize.Y * 1.5
-		elseif button.AbsoluteSize.X == button.AbsoluteSize.Y then
-			size = button.AbsoluteSize.X * 1.5
-		end
+		local size = math.max(button.AbsoluteSize.X, button.AbsoluteSize.Y) * 1.5 / scale
 
 		circle:TweenSizeAndPosition(UDim2.new(0, size, 0, size), UDim2.new(0.5, -size / 2, 0.5, -size / 2), "Out", "Quad", 0.5, false, nil)
 		Resize(circle, {ImageTransparency = 1}, 0.5)
@@ -1159,9 +1173,34 @@ function library:CreatePrivacyRedactor(player, redactorKey)
 		return false
 	end
 
+    local scoreboardText = {}
+    local nametagText = {}
+    local tracking = {}
+    local characterTracking = {}
+    local function stopTracking(connections)
+        for _, connection in ipairs(connections) do
+            connection:Disconnect()
+            runtime.Connections[connection] = nil
+        end
+        table.clear(connections)
+    end
+    local function trackRoot(root, objects, connections)
+        local function added(object)
+            if object:IsA("TextLabel") or object:IsA("TextButton") then objects[object] = true end
+        end
+        for _, object in ipairs(root:GetDescendants()) do added(object) end
+        table.insert(connections, runtime:Connect(root.DescendantAdded, added))
+        table.insert(connections, runtime:Connect(root.DescendantRemoving, function(object) objects[object] = nil end))
+    end
+    local function trackCharacter(character)
+        stopTracking(characterTracking)
+        table.clear(nametagText)
+        if character then trackRoot(character, nametagText, characterTracking) end
+    end
+    runtime:AddCleanup(function() stopTracking(tracking); stopTracking(characterTracking) end)
+
 	local function redactScoreboard()
-		local coreGui = game:GetService("CoreGui")
-		for _, object in ipairs(coreGui:GetDescendants()) do
+		for object in pairs(scoreboardText) do
 			local saved = redactor.OriginalText[object]
 			local wasName = saved and (string.find(saved.Original, player.Name, 1, true)
 				or string.find(saved.Original, player.DisplayName, 1, true))
@@ -1180,9 +1219,7 @@ function library:CreatePrivacyRedactor(player, redactorKey)
 	end
 
 	local function redactNametag()
-		local character = player.Character
-		if not character then return end
-		for _, object in ipairs(character:GetDescendants()) do
+		for object in pairs(nametagText) do
 			if object:IsA("TextLabel") or object:IsA("TextButton") then
 				redactName(object)
 			end
@@ -1190,11 +1227,20 @@ function library:CreatePrivacyRedactor(player, redactorKey)
 	end
 
 	function redactor:SetEnabled(enabled)
+        enabled = enabled == true
+        if self.Enabled == enabled then return end
 		self.Enabled = enabled
 		if enabled then
+            trackRoot(game:GetService("CoreGui"), scoreboardText, tracking)
+            trackCharacter(player.Character)
+            table.insert(tracking, runtime:Connect(player.CharacterAdded, trackCharacter))
 			pcall(redactNametag)
 			pcall(redactScoreboard)
 		else
+            stopTracking(tracking)
+            stopTracking(characterTracking)
+            table.clear(scoreboardText)
+            table.clear(nametagText)
 			for object, saved in pairs(self.OriginalText) do
 				if object and object.Parent then
 					object.Text = saved.Original
@@ -1283,6 +1329,13 @@ function library:AddWindow(title, options)
 	local TabSelection = Window:FindFirstChild("TabSelection")
 	local Tabs = Window:FindFirstChild("Tabs")
 	local window_data = {}
+    local uiScale = Instance.new("UIScale")
+    uiScale.Name = "WindowScale"
+    uiScale.Parent = Window
+    local mobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
+    local initialScale = mobile and 0.75 or 1
+    local requestedScale = initialScale
+    function window_data:GetScale() return uiScale.Scale end
 	local minimized = false
 	local expandedSize = Window.Size
 	local gesture
@@ -1350,8 +1403,34 @@ function library:AddWindow(title, options)
 		return UDim2.fromOffset(math.max(minimum.X, size.X.Offset), math.max(minimum.Y, size.Y.Offset))
 	end
 
+    local function availableSize()
+        local size = Window.Parent.AbsoluteSize
+        if size.X <= 0 or size.Y <= 0 then
+            local camera = workspace.CurrentCamera
+            size = camera and camera.ViewportSize or Vector2.new(1280, 720)
+        end
+        return size
+    end
+
+    local function clampPosition()
+        local available = availableSize()
+        local width = expandedSize.X.Offset * uiScale.Scale
+        local height = (minimized and 26 or expandedSize.Y.Offset) * uiScale.Scale
+        local x = Window.Position.X.Scale * available.X + Window.Position.X.Offset
+        local y = Window.Position.Y.Scale * available.Y + Window.Position.Y.Offset
+        Window.Position = UDim2.fromOffset(math.clamp(x, 12, math.max(12, available.X - width - 12)),
+            math.clamp(y, 12, math.max(12, available.Y - height - 12)))
+    end
+
+    local function updateScale()
+        uiScale.Scale = math.clamp(requestedScale, 0.5, 1.5)
+        clampPosition()
+    end
+    runtime:Connect(Window.Parent:GetPropertyChangedSignal("AbsoluteSize"), updateScale)
+
     local function applySize(size, animated)
         expandedSize = clampSize(size)
+        updateScale()
         sizeVersion = sizeVersion + 1
         local version = sizeVersion
         if sizeTween then sizeTween:Cancel() end
@@ -1393,7 +1472,8 @@ function library:AddWindow(title, options)
 
 	function window_data:SetSize(size)
 		if not runtime.Alive then return end
-		applySize(UDim2.fromOffset(size.X, size.Y))
+        local target = clampSize(UDim2.fromOffset(size.X, size.Y))
+        applySize(target)
 	end
 
     local function lucideIcon(name, fallback)
@@ -1571,7 +1651,7 @@ function library:AddWindow(title, options)
         if gesture then return end
         if mode ~= "move" and mode ~= "pending" and (minimized or not resizeEnabled) then return end
         gesture = {Input = input, Mode = mode, Start = Vector2.new(input.Position.X, input.Position.Y),
-            Size = expandedSize, Position = Window.Position, Surface = surface}
+            Size = expandedSize, Scale = uiScale.Scale, Position = Window.Position, Surface = surface}
         if surface then
             gesture.Canvas = surface.CanvasPosition
             gesture.WasScrollingEnabled = surface.ScrollingEnabled
@@ -1614,7 +1694,7 @@ function library:AddWindow(title, options)
             return false
         end
         local origin, size = surface.AbsolutePosition, surface.AbsoluteSize
-        local thickness = surface.ScrollBarThickness + 2
+        local thickness = surface.ScrollBarThickness * uiScale.Scale + 2
         local vertical = surface.ScrollingDirection ~= Enum.ScrollingDirection.X
             and surface.AbsoluteCanvasSize.Y > surface.AbsoluteWindowSize.Y + 1
         local horizontal = surface.ScrollingDirection ~= Enum.ScrollingDirection.Y
@@ -1697,7 +1777,7 @@ function library:AddWindow(title, options)
                 return true
             end
         end
-        local inset = surface.ScrollBarThickness
+        local inset = surface.ScrollBarThickness * uiScale.Scale
         if surface.ScrollingDirection == Enum.ScrollingDirection.Y then
             return surface.AbsoluteCanvasSize.Y > surface.AbsoluteWindowSize.Y
                 and point.X >= surface.AbsolutePosition.X + surface.AbsoluteSize.X - inset - 2
@@ -1744,6 +1824,7 @@ function library:AddWindow(title, options)
         if gesture.Mode == "move" then
             Window.Position = UDim2.new(gesture.Position.X.Scale, gesture.Position.X.Offset + delta.X,
                 gesture.Position.Y.Scale, gesture.Position.Y.Offset + delta.Y)
+            clampPosition()
         elseif gesture.Mode == "scrollX" or gesture.Mode == "scrollY" then
             local surface = gesture.Surface
             local maxX = math.max(0, surface.AbsoluteCanvasSize.X - surface.AbsoluteWindowSize.X)
@@ -1752,8 +1833,8 @@ function library:AddWindow(title, options)
                 math.clamp(gesture.Canvas.X - (gesture.Mode == "scrollX" and delta.X or 0), 0, maxX),
                 math.clamp(gesture.Canvas.Y - (gesture.Mode == "scrollY" and delta.Y or 0), 0, maxY))
         else
-            applySize(UDim2.fromOffset(gesture.Size.X.Offset + (gesture.Mode == "both" and delta.X or 0),
-                gesture.Size.Y.Offset + delta.Y))
+            applySize(UDim2.fromOffset(gesture.Size.X.Offset + (gesture.Mode == "both" and delta.X / gesture.Scale or 0),
+                gesture.Size.Y.Offset + delta.Y / gesture.Scale))
         end
     end
     runtime:Connect(UIS.InputChanged, updateGesture)
@@ -1787,7 +1868,7 @@ function library:AddWindow(title, options)
         BackgroundColor = Window.BackgroundColor3,
         TextColor = Color3.new(1, 1, 1),
         Font = Enum.Font.GothamSemibold,
-        HeadingSize = 16, LabelSize = 14, ControlSize = 14, Spacing = 5,
+        HeadingSize = 16, LabelSize = 14, ControlSize = 14, Spacing = 5, WindowScale = initialScale,
     }
     local theme = table.clone(themeDefaults)
     local labels = {}
@@ -1801,13 +1882,14 @@ function library:AddWindow(title, options)
 
     local textService = game:GetService("TextService")
     local dirtyLabels = {}
+    local labelClock = 0
 
     local function renderLabel(label)
         local state = labels[label]
         if not label.Parent or not state or state.Rendering then return end
         state.Rendering = true
         dirtyLabels[label] = nil
-        local width = math.max(1, math.floor(label.AbsoluteSize.X + 0.5))
+        local width = math.max(1, math.floor(label.AbsoluteSize.X / uiScale.Scale + 0.5))
         state.Width = width
         if state.Text ~= label.Text then
             state.Text = label.Text
@@ -1855,6 +1937,7 @@ function library:AddWindow(title, options)
             state.Measurements[index] = nil
         end
         label.Size = UDim2.new(1, -10, 0, math.max(label.TextSize + 6, paragraphY - theme.Spacing))
+        state.LastRendered = labelClock
         state.Rendering = false
     end
 
@@ -1870,14 +1953,16 @@ function library:AddWindow(title, options)
 
     local labelElapsed = 0
     runtime:Connect(RS.Heartbeat, function(delta)
+        labelClock = labelClock + delta
         labelElapsed = labelElapsed + delta
-        if labelElapsed < 0.1 then return end
-        labelElapsed = 0
+        if labelElapsed < 0.02 then return end
+        labelElapsed = labelElapsed % 0.02
         for label in pairs(dirtyLabels) do
             if not label.Parent then
                 dirtyLabels[label] = nil
             elseif labelVisible(label) then
-                renderLabel(label)
+                local interval = math.max(0.02, tonumber(label:GetAttribute("EleriumUpdateInterval")) or 0.1)
+                if labelClock - (labels[label].LastRendered or 0) + 1e-6 >= interval then renderLabel(label) end
             end
         end
     end)
@@ -1898,13 +1983,13 @@ function library:AddWindow(title, options)
         object.Parent = parent
         labels[object] = {Lines = {}, Measurements = {}}
         for _, property in ipairs({"Text", "TextSize", "Font", "TextColor3", "RichText", "ZIndex"}) do
-            runtime:Connect(object:GetPropertyChangedSignal(property), function() dirtyLabels[object] = true end)
+            runtime:Connect(object:GetPropertyChangedSignal(property), function() dirtyLabels[object] = true end, object)
         end
         runtime:Connect(object:GetPropertyChangedSignal("AbsoluteSize"), function()
             local state = labels[object]
-            if state and state.Width ~= math.max(1, math.floor(object.AbsoluteSize.X + 0.5)) then dirtyLabels[object] = true end
-        end)
-        runtime:Connect(object.Destroying, function()
+            if state and state.Width ~= math.max(1, math.floor(object.AbsoluteSize.X / uiScale.Scale + 0.5)) then dirtyLabels[object] = true end
+        end, object)
+        object.Destroying:Once(function()
             dirtyLabels[object] = nil
             labels[object] = nil
         end)
@@ -1963,34 +2048,52 @@ function library:AddWindow(title, options)
                     assert(typeof(value) == "EnumItem" and value.EnumType == Enum.Font, "Invalid font")
                 else
                     assert(type(value) == "number" and value == value and value < math.huge, "Invalid " .. key)
-                    value = math.clamp(math.floor(value), key == "Spacing" and 0 or 10, key == "Spacing" and 20 or 30)
+                    value = key == "WindowScale" and math.clamp(value, 0.5, 1.5)
+                        or math.clamp(math.floor(value), key == "Spacing" and 0 or 10, key == "Spacing" and 20 or 30)
                 end
                 staged[key] = value
             end
         end
+        local changed = {}
+        for key, value in pairs(staged) do
+            if value ~= theme[key] then changed[key] = true end
+        end
+        if next(changed) == nil then return end
         theme = staged
-        options.main_color = theme.MainColor
-        Window.BackgroundColor3 = theme.BackgroundColor
-        Window.ImageColor3 = theme.BackgroundColor
-        Bar.BackgroundColor3 = theme.MainColor
-        Bar.Base.BackgroundColor3 = theme.MainColor
-        TabSelection.Frame.BackgroundColor3 = theme.MainColor
-        for object in pairs(mainColorTargets) do
-            if object.Parent then object.ImageColor3 = theme.MainColor end
+        if changed.WindowScale then requestedScale = theme.WindowScale; updateScale() end
+        if changed.MainColor then
+            options.main_color = theme.MainColor
+            Bar.BackgroundColor3 = theme.MainColor
+            Bar.Base.BackgroundColor3 = theme.MainColor
+            TabSelection.Frame.BackgroundColor3 = theme.MainColor
+            for object in pairs(mainColorTargets) do
+                if object.Parent then object.ImageColor3 = theme.MainColor end
+            end
         end
-        for object in pairs(labels) do
-            object.Font = theme.Font
-            object.TextSize = object:GetAttribute("EleriumRole") == "Heading" and theme.HeadingSize or theme.LabelSize
-            if changes.TextColor then object.TextColor3 = theme.TextColor end
-            renderLabel(object)
+        if changed.BackgroundColor then
+            Window.BackgroundColor3 = theme.BackgroundColor
+            Window.ImageColor3 = theme.BackgroundColor
         end
-        for _, object in ipairs(Window:GetDescendants()) do styleObject(object, changes.TextColor ~= nil) end
+        if changed.Font or changed.HeadingSize or changed.LabelSize or changed.TextColor or changed.Spacing then
+            for object in pairs(labels) do
+                if changed.Font then object.Font = theme.Font end
+                if changed.HeadingSize or changed.LabelSize then
+                    object.TextSize = object:GetAttribute("EleriumRole") == "Heading" and theme.HeadingSize or theme.LabelSize
+                end
+                if changed.TextColor then object.TextColor3 = theme.TextColor end
+                dirtyLabels[object] = true
+            end
+        end
+        if changed.Font or changed.ControlSize or changed.Spacing or changed.TextColor then
+            for _, object in ipairs(Window:GetDescendants()) do styleObject(object, changed.TextColor == true) end
+        end
         for _, callback in ipairs(themeListeners) do runtime:Spawn(callback, self:GetTheme()) end
     end
     function window_data:ResetTheme()
         self:SetTheme(themeDefaults)
     end
     runtime:Connect(Window.DescendantAdded, function(object)
+        if object:GetAttribute("EleriumLabelLine") then return end
         runtime:Defer(function() if object.Parent then styleObject(object, false) end end)
     end)
 
@@ -2118,7 +2221,7 @@ function library:AddWindow(title, options)
 		local tab_buttons = tab_selection:FindFirstChild("TabButtons")
         local buttonLayout = tab_buttons:FindFirstChildOfClass("UIListLayout")
         local function updateTabCanvas()
-            tab_buttons.CanvasSize = UDim2.fromOffset(buttonLayout.AbsoluteContentSize.X, 0)
+            tab_buttons.CanvasSize = UDim2.fromOffset(buttonLayout.AbsoluteContentSize.X / uiScale.Scale, 0)
         end
         runtime:Connect(buttonLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateTabCanvas)
         updateTabCanvas()
@@ -2144,7 +2247,7 @@ function library:AddWindow(title, options)
                 contentSurfaces[new_tab] = true
                 local contentLayout = new_tab:FindFirstChildOfClass("UIListLayout")
                 local function updateContentCanvas()
-                    new_tab.CanvasSize = UDim2.fromOffset(0, contentLayout.AbsoluteContentSize.Y + 10)
+                    new_tab.CanvasSize = UDim2.fromOffset(0, contentLayout.AbsoluteContentSize.Y / uiScale.Scale + 10)
                 end
                 runtime:Connect(contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"), updateContentCanvas)
                 runtime:Connect(new_tab:GetPropertyChangedSignal("AbsoluteSize"), updateContentCanvas)
@@ -2156,14 +2259,14 @@ function library:AddWindow(title, options)
 					for i, v in pairs(tab_buttons:GetChildren()) do
 						if not (v:IsA("UIListLayout")) then
 							v:GetChildren()[1].ImageColor3 = Color3.fromRGB(52, 53, 56)
-							Resize(v, {Size = UDim2.new(0, v.AbsoluteSize.X, 0, 20)}, options.tween_time)
+							Resize(v, {Size = UDim2.new(0, v.Size.X.Offset, 0, 20)}, options.tween_time)
 						end
 					end
 					for i, v in pairs(tabs:GetChildren()) do
 						v.Visible = false
 					end
 
-					Resize(new_button, {Size = UDim2.new(0, new_button.AbsoluteSize.X, 0, 25)}, options.tween_time)
+					Resize(new_button, {Size = UDim2.new(0, new_button.Size.X.Offset, 0, 25)}, options.tween_time)
 					new_button:GetChildren()[1].ImageColor3 = Color3.fromRGB(73, 75, 79)
                     if minimized then setMinimized(false) end
                     new_tab.Visible = true
@@ -2471,12 +2574,12 @@ function library:AddWindow(title, options)
                             for _, item in ipairs(objects:GetChildren()) do
                                 if item:IsA("GuiButton") and item.Visible then
                                     count = count + 1
-                                    if count <= 10 then visibleHeight = visibleHeight + item.AbsoluteSize.Y end
+                                    if count <= 10 then visibleHeight = visibleHeight + item.AbsoluteSize.Y / uiScale.Scale end
                                 end
                             end
-                            local gap = layout.Padding.Offset + layout.Padding.Scale * objects.AbsoluteSize.Y
+                            local gap = layout.Padding.Offset + layout.Padding.Scale * objects.AbsoluteSize.Y / uiScale.Scale
                             visibleHeight = visibleHeight + math.max(0, math.min(count, 10) - 1) * gap
-                            objects.CanvasSize = UDim2.fromOffset(0, math.ceil(layout.AbsoluteContentSize.Y))
+                            objects.CanvasSize = UDim2.fromOffset(0, math.ceil(layout.AbsoluteContentSize.Y / uiScale.Scale))
                             if open then
                                 Resize(box, {Size = UDim2.new(1, 0, 0, math.ceil(visibleHeight))}, options.tween_time)
                             end
@@ -2547,10 +2650,10 @@ function library:AddWindow(title, options)
 
 							runtime:Connect(object.MouseEnter, function()
 								object.BackgroundColor3 = options.main_color
-							end)
+							end, object)
 							runtime:Connect(object.MouseLeave, function()
 								object.BackgroundColor3 = Color3.fromRGB(33, 34, 36)
-							end)
+							end, object)
 
                             updateDropdownSize()
 
@@ -2563,7 +2666,7 @@ function library:AddWindow(title, options)
 									Resize(indicator, {Rotation = -90}, options.tween_time)
 									pcall(callback, n)
 								end
-							end)
+							end, object)
 
 							function object_data:Remove()
 								if object.Parent then object:Destroy() end
@@ -3096,15 +3199,21 @@ function library:AddWindow(title, options)
 								end
 							end
 
-							if console_options.source == "Lua" then
-								highlight_lua("Text")
-								runtime:Connect(Source.Changed, highlight_lua)
-							elseif console_options.source == "Logs" then
-								Lines.Visible = false
-
-								highlight_logs("Text")
-								runtime:Connect(Source.Changed, highlight_logs)
-							end
+                            local highlighter = console_options.source == "Lua" and highlight_lua
+                                or console_options.source == "Logs" and highlight_logs
+                            if console_options.source == "Logs" then Lines.Visible = false end
+                            if highlighter then
+                                highlighter("Text")
+                                local pending = false
+                                runtime:Connect(Source:GetPropertyChangedSignal("Text"), function()
+                                    if pending then return end
+                                    pending = true
+                                    runtime:Delay(0.05, function()
+                                        if Source.Parent then highlighter("Text") end
+                                        pending = false
+                                    end)
+                                end, Source)
+                            end
 
 							function console_data:Set(code)
 								Source.Text = tostring(code)
@@ -3171,7 +3280,7 @@ function library:AddWindow(title, options)
 							local n = math.max(20, theme.ControlSize + 6) + theme.Spacing
 							for i,v in pairs(objects:GetChildren()) do
 								if not (v:IsA("UIListLayout")) then
-									n = n + v.AbsoluteSize.Y + theme.Spacing
+									n = n + v.AbsoluteSize.Y / uiScale.Scale + theme.Spacing
 								end
 							end
 							return n

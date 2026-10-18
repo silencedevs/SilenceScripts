@@ -175,13 +175,25 @@ Manager methods:
 
 ## Customize
 
-Change the main color, background color, text color, font, text sizes, and row spacing
+Change the main color, background color, text color, font, and Window Size
 
 Click or tap a color swatch to open the color picker
 
 Each font option uses its own font as a preview
 
-The window title and header controls keep their original appearance
+Window Size scales everything together, including text, controls, spacing, and resize handles
+
+The first run starts at 75% on mobile and 100% on desktop, then saves that setting
+
+Later runs use your saved Window Size
+
+50% is the minimum on every device and uses the same scale on mobile and desktop
+
+The percentage is applied directly, without an extra screen-based multiplier
+
+The slider applies when you release it and saves with your other appearance settings
+
+Font and text color settings do not change the title or header icons
 
 Settings save automatically to `Silence/Customize/<PlaceId>/appearance.json` and load when you add Customize
 
@@ -197,7 +209,13 @@ Theme methods:
 - `window:SetTheme({...})`
 - `window:ResetTheme()`
 
-Theme keys: `MainColor`, `BackgroundColor`, `TextColor`, `Font`, `HeadingSize`, `LabelSize`, `ControlSize`, `Spacing`
+Theme keys: `MainColor`, `BackgroundColor`, `TextColor`, `Font`, `HeadingSize`, `LabelSize`, `ControlSize`, `Spacing`, `WindowScale`
+
+`WindowScale` uses a factor from `0.5` to `1.5`, so `window:SetTheme({WindowScale = 1.2})` sets 120%
+
+Reset appearance restores 75% on mobile or 100% on desktop
+
+The individual size and spacing keys remain available for existing scripts
 
 ## Labels and inputs
 
@@ -221,6 +239,8 @@ When content overflows, dragging along the scroll direction scrolls it and dragg
 
 You can also use the mouse wheel or scrollbar
 
+Window sizes use logical pixels before scaling
+
 The minimum window height is 300px and the minimum width fits the full title and header controls
 
 `min_size` sets the starting size
@@ -232,6 +252,7 @@ Close removes the window and stops work managed by its runtime
 Window methods:
 
 - `window:SetSize(Vector2)`
+- `window:GetScale()` returns the current scale
 - `window:SetTitle(string)`
 - `window:Minimize(bool)`
 - `window:Destroy()`
