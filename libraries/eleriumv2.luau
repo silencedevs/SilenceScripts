@@ -1341,7 +1341,7 @@ function library:AddWindow(title, options)
     uiScale.Name = "WindowScale"
     uiScale.Parent = Window
     local mobile = mobileDevice
-    local initialScale = mobile and 0.75 or 1
+    local initialScale = 1
     local requestedScale = initialScale
     function window_data:GetScale() return uiScale.Scale end
 	local minimized = false
@@ -1395,11 +1395,13 @@ function library:AddWindow(title, options)
 	TabSelection.Position = UDim2.fromOffset(15, 32)
 	Title.Position = UDim2.fromOffset(30, 3)
 	Title.Size = UDim2.new(1, -104, 0, 20)
+	Title.TextTruncate = Enum.TextTruncate.AtEnd
 	Title.ZIndex = Window.ZIndex + 4
 	Title.Active = true
 	Toggle.ZIndex = Window.ZIndex + 5
 	Toggle.Position = UDim2.fromOffset(5, -2)
 
+    local availableSize
 	local function minimumSize()
 		local textSize = game:GetService("TextService"):GetTextSize(Title.Text, Title.TextSize,
 			Title.Font, Vector2.new(100000, 100000))
@@ -1408,14 +1410,26 @@ function library:AddWindow(title, options)
 
 	local function clampSize(size)
 		local minimum = minimumSize()
+        local available = availableSize()
+        local scale = uiScale.Scale
+        local margin = math.max(16, 40 * scale)
+        -- A small viewport may require less than the usual title width or 300px height
+        minimum = Vector2.new(math.min(minimum.X, math.max(1, available.X - margin * 2) / scale),
+            math.min(minimum.Y, math.max(1, available.Y - margin * 2) / scale))
 		return UDim2.fromOffset(math.max(minimum.X, size.X.Offset), math.max(minimum.Y, size.Y.Offset))
 	end
 
-    local function availableSize()
+    availableSize = function()
         local size = Window.Parent.AbsoluteSize
         if size.X <= 0 or size.Y <= 0 then
             local camera = workspace.CurrentCamera
             size = camera and camera.ViewportSize or Vector2.new(1280, 720)
+        end
+        local canvas = imgui.AbsoluteSize
+        if canvas.X > 0 and canvas.Y > 0 then
+            local origin = Window.Parent.AbsolutePosition - imgui.AbsolutePosition
+            size = Vector2.new(math.min(size.X, canvas.X - math.max(0, origin.X)),
+                math.min(size.Y, canvas.Y - math.max(0, origin.Y)))
         end
         return size
     end
@@ -1425,16 +1439,18 @@ function library:AddWindow(title, options)
         local width = expandedSize.X.Offset * uiScale.Scale
         local x = Window.Position.X.Scale * available.X + Window.Position.X.Offset
         local y = Window.Position.Y.Scale * available.Y + Window.Position.Y.Offset
-        -- Keep a usable part of the header reachable, even if the body exceeds the screen
+        -- Allow the header above the screen while keeping part of the window reachable
+        local height = (minimized and 26 or expandedSize.Y.Offset) * uiScale.Scale
         local visibleHeader = math.min(width, math.max(48, math.min(160 * uiScale.Scale, available.X - 24)))
-        local minX = math.min(12, available.X - width - 12)
+        local minX = math.min(12, 12 - width + visibleHeader)
         local maxX = math.max(12, available.X - visibleHeader - 12)
         local maxY = math.max(12, available.Y - 26 * uiScale.Scale - 12)
-        Window.Position = UDim2.fromOffset(math.clamp(x, minX, maxX), math.clamp(y, 12, maxY))
+        local minY = math.min(0, 12 - height + math.min(height * 0.5, 48 * uiScale.Scale))
+        Window.Position = UDim2.fromOffset(math.clamp(x, minX, maxX), math.clamp(y, minY, maxY))
     end
 
     local function updateScale()
-        uiScale.Scale = math.clamp(requestedScale, 0.5, 1.5)
+        uiScale.Scale = math.clamp(requestedScale, 0.5, 1.5) * (mobile and 0.7 or 1)
         clampPosition()
     end
     runtime:Connect(Window.Parent:GetPropertyChangedSignal("AbsoluteSize"), updateScale)
@@ -1462,6 +1478,24 @@ function library:AddWindow(title, options)
             Window.Size = target
             finish()
         end
+    end
+
+    function window_data:FitToScreen()
+        if not runtime.Alive then return end
+        local available = availableSize()
+        local scale = uiScale.Scale
+        local margin = math.max(16, 40 * scale)
+        local width = math.min(expandedSize.X.Offset, math.max(1, available.X - margin * 2) / scale)
+        local height = math.min(expandedSize.Y.Offset, math.max(1, available.Y - margin * 2) / scale)
+        applySize(UDim2.fromOffset(width, height))
+        -- If the minimum exceeds the viewport, align the bottom-right grip inside it
+        local maxX = available.X - expandedSize.X.Offset * scale - margin
+        local maxY = available.Y - (minimized and 26 or expandedSize.Y.Offset) * scale - margin
+        local position = Window.Position
+        local x = position.X.Scale * available.X + position.X.Offset
+        local y = position.Y.Scale * available.Y + position.Y.Offset
+        Window.Position = UDim2.fromOffset(math.min(math.max(margin, x), maxX),
+            math.min(math.max(margin, y), maxY))
     end
 
     local function endGesture()
@@ -3368,6 +3402,10 @@ function library:AddWindow(title, options)
     for method, module in pairs(library.WindowModules) do
         window_data[method] = function(windowSelf, settings) return module:Build(windowSelf, settings) end
     end
+    runtime:Spawn(function()
+        for _ = 1, 4 do RS.Heartbeat:Wait() end
+        if not gesture then window_data:FitToScreen() end
+    end)
 	return window_data, Window
 end
 

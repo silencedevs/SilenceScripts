@@ -4272,4 +4272,5 @@ tabs.info.VersionLabel.Font = Enum.Font.Arcade
 
 runtime:Defer(function()
     utils.configManager:LoadStartup()
+    if utils.silence.FitToScreen then utils.silence:FitToScreen() end
 end)

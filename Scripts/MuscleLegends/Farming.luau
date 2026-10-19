@@ -2717,5 +2717,6 @@ runtime:Defer(function()
     local layout = tabBar:FindFirstChildOfClass("UIListLayout")
     local padding = frame.AbsoluteSize.X - tabBar.AbsoluteWindowSize.X
     silence:SetSize(Vector2.new(math.ceil((layout.AbsoluteContentSize.X + padding) / (silence.GetScale and silence:GetScale() or 1)), frame.Size.Y.Offset))
+    if silence.FitToScreen then silence:FitToScreen() end
     tabBar.CanvasPosition = Vector2.zero
 end)
