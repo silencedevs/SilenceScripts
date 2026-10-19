@@ -4006,7 +4006,7 @@ end)
 tabs.boosts:AddSwitch("Eat All Eggs", function(state) tabs.boosts.EggEaterData.Running = state end):Set(false)
 
 tabs.boosts.BoostData = {
-	ItemList = {"Tropical Shake", "Energy Shake", "Protein Bar", "TOUGH Bar", "Protein Shake", "Energy Bar"},
+	ItemList = {"Tropical Shake", "ULTRA Shake", "Energy Shake", "Protein Bar", "TOUGH Bar", "Protein Shake", "Energy Bar"},
 	Running = false
 }
 
