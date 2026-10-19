@@ -1,4 +1,3 @@
--- Close the standalone shader preview before capturing Main's original lighting
 if _G.SilenceShaderPreview then _G.SilenceShaderPreview:Destroy() end
 
 local services = {
@@ -871,7 +870,6 @@ end
 tabs.killing:AddLabel("Misc:")
 
 tabs.killing.equipBestStatPets = function(priority)
-    -- equippedPets slots reference character models; this remote needs inventory entries
     for _, folder in ipairs(services.Players.LocalPlayer.petsFolder:GetChildren()) do
         if folder:IsA("Folder") then
             for _, pet in ipairs(folder:GetChildren()) do
