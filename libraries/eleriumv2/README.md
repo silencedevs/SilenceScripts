@@ -9,7 +9,7 @@
 Use this example to get started:
 
 ```lua
-local base = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/"
+local base = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/"
 local library = loadstring(game:HttpGet(base .. "eleriumv2.luau"))()
 
 local window = library:AddWindow("My script", {
@@ -94,7 +94,7 @@ The sections below explain the API in more detail
 ## Optional module tabs
 
 ```lua
-local base = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/"
+local base = "https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/"
 local library = loadstring(game:HttpGet(base .. "eleriumv2.luau"))()
 library:Use(loadstring(game:HttpGet(base .. "modules/Customize.luau"))())
 library:Use(loadstring(game:HttpGet(base .. "modules/ConfigManager.luau"))())

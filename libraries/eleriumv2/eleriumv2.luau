@@ -1530,7 +1530,7 @@ function library:AddWindow(title, options)
             end
             local path = "Silence/LibraryAssets/lucide-" .. name .. ".png"
             if type(isfile) ~= "function" or not isfile(path) then
-                writefile(path, game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/assets/" .. name .. ".png"))
+                writefile(path, game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/assets/" .. name .. ".png"))
             end
             return getcustomasset(path)
         end)

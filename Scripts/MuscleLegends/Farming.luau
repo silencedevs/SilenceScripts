@@ -11,9 +11,9 @@ local services = {
     collectionservice = game:GetService("CollectionService")
 }
 
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2.luau?cache=" .. tostring(os.time()), true))()
-library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/modules/ConfigManager.luau?cache=" .. tostring(os.time()), true))())
-library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/modules/Customize.luau?cache=" .. tostring(os.time()), true))())
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/eleriumv2.luau?cache=" .. tostring(os.time()), true))()
+library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/modules/ConfigManager.luau?cache=" .. tostring(os.time()), true))())
+library:Use(loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/eleriumv2/modules/Customize.luau?cache=" .. tostring(os.time()), true))())
 local runtime = library.Runtime
 
 do
