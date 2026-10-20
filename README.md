@@ -6,6 +6,7 @@ Silence is a multi-game Roblox script project with automatic game detection and 
 
 - Muscle Legends
 - Tap Simulator
+- Steal An Egg
   
 ## Usage
 
@@ -18,6 +19,18 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceSc
 
 3. Enter the key "SOT" when prompted.
 4. Select **Execute Silence**. The loader will automatically load the correct script for your game.
+
+## Steal An Egg
+
+`Scripts/stealaneg.luau` uses the custom EleriumV2 library. It includes filtered
+egg stealing and delivery, placement, hatching, protected selling, pet equipment,
+fusion, upgrades, trails, ESP, player settings, server navigation, and selected
+race and event helpers. Automation defaults to off. Selling, fusion, and shop
+actions consume items or in-game currency when enabled.
+
+The loader entry becomes available remotely after these files are published to
+the repository. For local executor tests, execute `Scripts/stealaneg.luau` directly.
+The script downloads EleriumV2 and its modules from this repository's main branch.
 
 ## Links
 

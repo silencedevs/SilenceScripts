@@ -2117,6 +2117,7 @@ function library:AddWindow(title, options)
         if changed.WindowScale then requestedScale = theme.WindowScale; updateScale() end
         if changed.MainColor then
             options.main_color = theme.MainColor
+            HeaderSurface.BackgroundColor3 = theme.MainColor
             Bar.BackgroundColor3 = theme.MainColor
             Bar.Base.BackgroundColor3 = theme.MainColor
             TabSelection.Frame.BackgroundColor3 = theme.MainColor
