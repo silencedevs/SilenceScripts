@@ -24,7 +24,7 @@ local player = {
     replication = require(services.replicatedStorage.Game.Replication),
 }
 
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/refs/heads/main/libraries/windui/windui.luau"))()
 
 local silence = WindUI:CreateWindow({
     Title = "Silence - Tap Simulator",
@@ -33,6 +33,7 @@ local silence = WindUI:CreateWindow({
     IconSize = 13*2,
     Theme = "Crimson",
     NewElements = true,
+    TopBarButtonIconSize = (services.userInputService.KeyboardEnabled and services.userInputService.MouseEnabled) and 24 or 16,
     Size = UDim2.fromOffset(450, 450),
 
     OpenButton = {
@@ -42,20 +43,20 @@ local silence = WindUI:CreateWindow({
         Enabled = true,
         Draggable = true,
         OnlyMobile = false,
-        Scale = 0.5,
+        Scale = (services.userInputService.KeyboardEnabled and services.userInputService.MouseEnabled) and 1.25 or 0.5,
         
         Color = ColorSequence.new(
             Color3.fromHex("#880000"),
             Color3.fromHex("000000")
         )},
     Topbar = {
-        Height = 44,
+        Height = (services.userInputService.KeyboardEnabled and services.userInputService.MouseEnabled) and 56 or 44,
         ButtonsType = "Default",
     },
 })
 
 silence:Tag({
-    Title = "Silence [V.3]",
+    Title = "V1.0.0",
     Icon = "github",
     Color = Color3.fromHex("#1c1c1c"),
     Border = true,
