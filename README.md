@@ -2,11 +2,13 @@
 
 Silence is a multi-game Roblox script project with automatic game detection and dedicated features for each supported experience.
 
+Official website: [silencescripts.net](https://silencescripts.net/). Browse game-specific features, script status, source code and community links there.
+
 ## Supported Games
 
-- Muscle Legends
-- Tap Simulator
-- Steal An Egg
+- [Muscle Legends](https://silencescripts.net/games/3623096087/)
+- [Tap Simulator](https://silencescripts.net/games/75992362647444/) (outdated)
+- [Steal An Egg](https://silencescripts.net/games/107778070777162/)
   
 ## Usage
 
@@ -34,7 +36,7 @@ The script downloads EleriumV2 and its modules from this repository's main branc
 
 ## Links
 
-- [Website](https://silencestudios.vercel.app/)
+- [Official website](https://silencescripts.net/)
 - [Discord](https://discord.gg/9eFf93Kg8D)
 
 ## License
