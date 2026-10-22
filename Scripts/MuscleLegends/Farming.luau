@@ -2640,6 +2640,16 @@ tabs.other.ReconnectSwitch:SetConfigKey("Other.AutoReconnect")
 
 tabs.other:AddLabel("Continueing Farming will require a Config Profile AND the Script in Autoexecute Folder. It does NOT work on every Executor!")
 
+tabs.other.farmingloadstring = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/silencedevs/SilenceScripts/main/Scripts/MuscleLegends/Farming.luau", true))()'
+
+tabs.other:AddButton("Copy direct Farming loadstring", function()
+	if type(setclipboard) == "function" and pcall(setclipboard, tabs.other.farmingloadstring) then
+		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Loadstring copied!", Text = "Save it to autoexecute now", Duration = 3}) end)
+	else
+		pcall(function() game.StarterGui:SetCore("SendNotification", {Title = "Error!", Text = "Clipboard not Supported.", Duration = 3}) end)
+	end
+end)
+
 pcall(function()
     runtime:Connect(game:GetService("GuiService").ErrorMessageChanged, tabs.other.checkDisconnect)
 end)
