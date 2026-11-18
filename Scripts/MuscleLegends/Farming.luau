@@ -1653,30 +1653,30 @@ tabs.boss.attack = function(boss, model, health, maxHealth, hitbox, character, r
 	boss.HealthLabel.Text = "Health: " .. formatCurrentStat(boss.runtime.health) .. " / " .. formatCurrentStat(boss.runtime.maxHealth)
 end
 
-tabs.boss.findChest = function(chest, prompt, part)
-	for _, candidate in ipairs(services.collectionservice:GetTagged("BossEventChest")) do
+tabs.boss.findChest = function(chestTag, promptName, chest, prompt, part)
+	for _, candidate in ipairs(services.collectionservice:GetTagged(chestTag or "BossEventChest")) do
 		if candidate:IsDescendantOf(workspace) then chest = candidate break end
 	end
-	if not chest then chest = workspace:FindFirstChild("BossChest", true) end
+	if not chest and not chestTag then chest = workspace:FindFirstChild("BossChest", true) end
 	if not chest then
 		for _, candidate in ipairs(workspace:GetDescendants()) do
-			if candidate:IsA("ProximityPrompt") and candidate.Name == "bossChestPrompt" then
+			if candidate:IsA("ProximityPrompt") and candidate.Name == (promptName or "bossChestPrompt") then
 				chest = candidate.Parent
 				break
 			end
 		end
 	end
 	if not chest then return end
-	prompt = chest:FindFirstChild("bossChestPrompt", true)
+	prompt = chest:FindFirstChild(promptName or "bossChestPrompt", true)
 	part = prompt and prompt.Parent or (chest:IsA("Model") and (chest.PrimaryPart or chest:FindFirstChildWhichIsA("BasePart", true))) or chest
 	if part and part:IsA("BasePart") then return chest, prompt, part end
 end
 
-tabs.boss.collectChest = function(generation, startedAt, chest, prompt, part, character, root)
+tabs.boss.collectChest = function(generation, chestTag, promptName, startedAt, chest, prompt, part, character, root)
 	tabs.boss.StatusLabel.Text = "Status: Waiting for Chest"
 	startedAt = os.clock()
 	repeat
-		chest, prompt, part = tabs.boss.findChest()
+		chest, prompt, part = tabs.boss.findChest(chestTag, promptName)
 		if chest and chest:GetAttribute("BossChestEmerging") ~= true then break end
 		task.wait(0.1)
 	until not tabs.boss.Data.Running or tabs.boss.Data.Generation ~= generation or os.clock() - startedAt >= 12
@@ -1714,7 +1714,7 @@ end
 tabs.boss.ContinueSwitch = tabs.boss:AddSwitch("Continue Farming after Boss Kill", function(state)
 	tabs.boss.Data.ContinueTraining = state
 	if state and tabs.boss.Data.Phase == "Waiting"
-		and (not tabs.boss.Halloween or not tabs.boss.Halloween.Data.Running) then tabs.boss.resumeTraining() end
+		and (not tabs.boss.Alien or not tabs.boss.Alien.Data.Running) then tabs.boss.resumeTraining() end
 end)
 tabs.boss.ContinueSwitch:Set(true)
 
@@ -1912,8 +1912,8 @@ runtime:Spawn(function()
 end)
 
 tabs.boss.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Boss", function(state)
-	if state and tabs.boss.Halloween and tabs.boss.Halloween.Data.Running then
-		tabs.boss.Halloween.AutoFarmSwitch:Set(false)
+	if state and tabs.boss.Alien and tabs.boss.Alien.Data.Running then
+		tabs.boss.Alien.AutoFarmSwitch:Set(false)
 	end
 	tabs.boss.Data.Running = state
 	tabs.boss.Data.Generation += 1
@@ -1985,14 +1985,14 @@ end)
 
 tabs.boss:AddLabel("")
 
-tabs.boss:AddHeading("Halloween Boss Farming:")
-tabs.boss.Halloween = {
+tabs.boss:AddHeading("Alien Boss Farming:")
+tabs.boss.Alien = {
 	runtime = {},
-	BossLabelPrefix = "Halloween Boss: ",
-	StatusLabel = tabs.boss:AddLabel("Status: Waiting for Halloween Boss"),
-	BossLabel = tabs.boss:AddLabel("Halloween Boss: None"),
+	BossLabelPrefix = "Alien Boss: ",
+	StatusLabel = tabs.boss:AddLabel("Status: Waiting for Alien Boss"),
+	BossLabel = tabs.boss:AddLabel("Alien Boss: None"),
 	HealthLabel = tabs.boss:AddLabel("Health: 0 / 0"),
-	NextBossLabel = tabs.boss:AddLabel("Next Halloween Boss: Waiting for spawn"),
+	NextBossLabel = tabs.boss:AddLabel("Next Alien Boss: Waiting for spawn"),
 	Data = {
 		Running = false,
 		Generation = 0,
@@ -2005,72 +2005,67 @@ tabs.boss.Halloween = {
 		PunchBehindDistance = 45,
 		StompHealthThreshold = 0.35,
 		DodgeStomps = false,
-		Bosses = {
-			GrimReaper = "Grim Reaper",
-			FrankenBrute = "Frankenbrute",
-			PumpkinTitan = "Pumpkin Titan",
-			ScarecrowColossus = "Scarecrow Colossus"
-		},
-		BossOrder = {"GrimReaper", "FrankenBrute", "PumpkinTitan", "ScarecrowColossus"},
+		Bosses = {AlienBoss = "Alien Boss"},
+		BossOrder = {"AlienBoss"},
 		BossByDisplayName = {},
 		SelectedBosses = {},
 		Target = nil
 	}
 }
 
-tabs.boss.Halloween.getBossDisplayName = function(model)
-	return tabs.boss.Halloween.Data.Bosses[model:GetAttribute("BossId") or model.Name] or model.Name
+tabs.boss.Alien.getBossDisplayName = function(model)
+	return tabs.boss.Alien.Data.Bosses[model:GetAttribute("BossId") or model.Name] or model.Name
 end
 
-tabs.boss.Halloween.getBossHealth = function(health, model)
+tabs.boss.Alien.getBossHealth = function(health, model)
 	return tonumber(model:GetAttribute("Health")) or 0
 end
 
-tabs.boss.Halloween.getBossMaxHealth = function(maxHealth, model)
+tabs.boss.Alien.getBossMaxHealth = function(maxHealth, model)
 	return tonumber(model:GetAttribute("MaxHealth")) or 0
 end
 
-tabs.boss.Halloween.SelectedBossesLabel = tabs.boss:AddLabel("Targeted Halloween Bosses: All")
-tabs.boss.Halloween.updateSelectedBossesLabel = function(selectedNames)
+tabs.boss.Alien.SelectedBossesLabel = tabs.boss:AddLabel("Targeted Alien Bosses: All")
+tabs.boss.Alien.updateSelectedBossesLabel = function(selectedNames)
 	selectedNames = {}
-	for _, bossId in ipairs(tabs.boss.Halloween.Data.BossOrder) do
-		if tabs.boss.Halloween.Data.SelectedBosses[bossId] then
-			table.insert(selectedNames, tabs.boss.Halloween.Data.Bosses[bossId])
+	for _, bossId in ipairs(tabs.boss.Alien.Data.BossOrder) do
+		if tabs.boss.Alien.Data.SelectedBosses[bossId] then
+			table.insert(selectedNames, tabs.boss.Alien.Data.Bosses[bossId])
 		end
 	end
-	tabs.boss.Halloween.SelectedBossesLabel.Text = "Targeted Halloween Bosses: "
+	tabs.boss.Alien.SelectedBossesLabel.Text = "Targeted Alien Bosses: "
 		.. (#selectedNames > 0 and table.concat(selectedNames, ", ") or "None")
 end
 
-tabs.boss.Halloween.BossDropdown = tabs.boss:AddDropdown("Target specific Halloween Bosses", function(displayName, bossId)
-	bossId = tabs.boss.Halloween.Data.BossByDisplayName[displayName]
+tabs.boss.Alien.BossDropdown = tabs.boss:AddDropdown("Target specific Alien Bosses", function(displayName, bossId)
+	bossId = tabs.boss.Alien.Data.BossByDisplayName[displayName]
 	if not bossId then return end
-	tabs.boss.Halloween.Data.SelectedBosses[bossId] = not tabs.boss.Halloween.Data.SelectedBosses[bossId]
-	tabs.boss.Halloween.updateSelectedBossesLabel()
+	tabs.boss.Alien.Data.SelectedBosses[bossId] = not tabs.boss.Alien.Data.SelectedBosses[bossId]
+	tabs.boss.Alien.updateSelectedBossesLabel()
 end)
-for _, bossId in ipairs(tabs.boss.Halloween.Data.BossOrder) do
-	tabs.boss.Halloween.Data.BossByDisplayName[tabs.boss.Halloween.Data.Bosses[bossId]] = bossId
-	tabs.boss.Halloween.Data.SelectedBosses[bossId] = true
-	tabs.boss.Halloween.BossDropdown:Add(tabs.boss.Halloween.Data.Bosses[bossId])
+for _, bossId in ipairs(tabs.boss.Alien.Data.BossOrder) do
+	tabs.boss.Alien.Data.BossByDisplayName[tabs.boss.Alien.Data.Bosses[bossId]] = bossId
+	tabs.boss.Alien.Data.SelectedBosses[bossId] = true
+	tabs.boss.Alien.BossDropdown:Add(tabs.boss.Alien.Data.Bosses[bossId])
 end
-tabs.boss.Halloween.updateSelectedBossesLabel()
+tabs.boss.Alien.updateSelectedBossesLabel()
 
-tabs.boss.Halloween.shouldFarmBoss = function(model)
-	return tabs.boss.Halloween.Data.SelectedBosses[model:GetAttribute("BossId") or model.Name] == true
+tabs.boss.Alien.shouldFarmBoss = function(model)
+	return tabs.boss.Alien.Data.SelectedBosses[model:GetAttribute("BossId") or model.Name] == true
 end
 
-tabs.boss.Halloween.findActiveBoss = function(selectedOnly, model, hitbox, candidateHitbox, character, root, distance, closestDistance)
+tabs.boss.Alien.findActiveBoss = function(selectedOnly, model, hitbox, candidateHitbox, character, root, distance, closestDistance)
 	character = lp.player.Character
 	root = character and character:FindFirstChild("HumanoidRootPart")
 	closestDistance = math.huge
-	for _, candidate in ipairs(services.collectionservice:GetTagged("HalloweenBoss")) do
+	for _, candidate in ipairs(services.collectionservice:GetTagged("AlienBoss")) do
 		if candidate:IsA("Model") and candidate:IsDescendantOf(workspace)
-			and tabs.boss.Halloween.getBossHealth(nil, candidate) > 0
-			and (not selectedOnly or tabs.boss.Halloween.shouldFarmBoss(candidate)) then
+			and tabs.boss.Alien.getBossHealth(nil, candidate) > 0
+			and (not selectedOnly or tabs.boss.Alien.shouldFarmBoss(candidate)) then
 			candidateHitbox = candidate:FindFirstChild("BossDamageHitbox", true)
 				or candidate.PrimaryPart or candidate:FindFirstChild("HumanoidRootPart")
 			if candidateHitbox and candidateHitbox:IsA("BasePart") then
-				if selectedOnly and candidate == tabs.boss.Halloween.Data.Target then
+				if selectedOnly and candidate == tabs.boss.Alien.Data.Target then
 					return candidate, nil, nil, candidateHitbox
 				end
 				distance = root and (root.Position - candidateHitbox.Position).Magnitude or 0
@@ -2085,81 +2080,87 @@ end
 
 runtime:Spawn(function(model)
 	while true do
-		model = tabs.boss.Halloween.Data.Target
-		if not model or not model.Parent or tabs.boss.Halloween.getBossHealth(nil, model) <= 0 then
-			model = tabs.boss.Halloween.findActiveBoss()
+		model = tabs.boss.Alien.Data.Target
+		if not model or not model.Parent or tabs.boss.Alien.getBossHealth(nil, model) <= 0 then
+			model = tabs.boss.Alien.findActiveBoss()
 		end
 		if model then
-			tabs.boss.Halloween.BossLabel.Text = "Halloween Boss: " .. tabs.boss.Halloween.getBossDisplayName(model)
-			tabs.boss.Halloween.HealthLabel.Text = "Health: " .. formatCurrentStat(tabs.boss.Halloween.getBossHealth(nil, model))
-				.. " / " .. formatCurrentStat(tabs.boss.Halloween.getBossMaxHealth(nil, model))
-			tabs.boss.Halloween.NextBossLabel.Text = "Next Halloween Boss: Current boss active"
+			tabs.boss.Alien.BossLabel.Text = "Alien Boss: " .. tabs.boss.Alien.getBossDisplayName(model)
+			tabs.boss.Alien.HealthLabel.Text = "Health: " .. formatCurrentStat(tabs.boss.Alien.getBossHealth(nil, model))
+				.. " / " .. formatCurrentStat(tabs.boss.Alien.getBossMaxHealth(nil, model))
+			tabs.boss.Alien.NextBossLabel.Text = "Next Alien Boss: Current boss active"
 		else
-			tabs.boss.Halloween.BossLabel.Text = "Halloween Boss: None"
-			tabs.boss.Halloween.HealthLabel.Text = "Health: 0 / 0"
-			tabs.boss.Halloween.NextBossLabel.Text = "Next Halloween Boss: Waiting for spawn"
+			tabs.boss.Alien.BossLabel.Text = "Alien Boss: None"
+			tabs.boss.Alien.HealthLabel.Text = "Health: 0 / 0"
+			tabs.boss.Alien.runtime.spawn = services.collectionservice:GetTagged("AlienBossSpawn")[1]
+			tabs.boss.Alien.runtime.respawnAt = tabs.boss.Alien.runtime.spawn and tabs.boss.Alien.runtime.spawn:GetAttribute("AlienBossRespawnAt")
+			tabs.boss.Alien.NextBossLabel.Text = typeof(tabs.boss.Alien.runtime.respawnAt) == "number"
+				and "Next Alien Boss: " .. tabs.boss.formatCountdown(tabs.boss.Alien.runtime.respawnAt - workspace:GetServerTimeNow())
+				or "Next Alien Boss: Waiting for spawn"
 		end
 		task.wait(0.25)
 	end
 end)
 
-tabs.boss.Halloween.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Halloween Boss", function(state)
+tabs.boss.Alien.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Alien Boss", function(state)
 	if state and tabs.boss.Data.Running then tabs.boss.AutoFarmSwitch:Set(false) end
-	tabs.boss.Halloween.Data.Running = state
-	tabs.boss.Halloween.Data.Generation += 1
+	tabs.boss.Alien.Data.Running = state
+	tabs.boss.Alien.Data.Generation += 1
 	if not state then
-		tabs.boss.Halloween.Data.Preparation = nil
-		tabs.boss.Halloween.Data.Target = nil
-		tabs.boss.Halloween.Data.Phase = "Waiting"
-		tabs.boss.Halloween.StatusLabel.Text = "Status: Disabled"
+		tabs.boss.Alien.Data.Preparation = nil
+		tabs.boss.Alien.Data.Target = nil
+		tabs.boss.Alien.Data.Phase = "Waiting"
+		tabs.boss.Alien.StatusLabel.Text = "Status: Disabled"
 		tabs.boss.resumeTraining()
 		return
 	end
 
 	runtime:Spawn(function(generation, wasFighting, model, health, maxHealth, hitbox)
-		while tabs.boss.Halloween.Data.Running and tabs.boss.Halloween.Data.Generation == generation do
+		while tabs.boss.Alien.Data.Running and tabs.boss.Alien.Data.Generation == generation do
 			pcall(function()
-				model, health, maxHealth, hitbox = tabs.boss.Halloween.findActiveBoss(true)
+				model, health, maxHealth, hitbox = tabs.boss.Alien.findActiveBoss(true)
 				if model then
-					if wasFighting and tabs.boss.needsRetraining(tabs.boss.Halloween) then wasFighting = false end
+					if wasFighting and tabs.boss.needsRetraining(tabs.boss.Alien) then wasFighting = false end
 					if not wasFighting then
-						if not tabs.boss.prepareForBoss(tabs.boss.Halloween) then return end
+						if not tabs.boss.prepareForBoss(tabs.boss.Alien) then return end
 						wasFighting = true
 						tabs.boss.pauseTraining()
 					end
-					if not tabs.boss.Halloween.Data.Running or tabs.boss.Halloween.Data.Generation ~= generation then return end
-					if tabs.boss.needsRetraining(tabs.boss.Halloween) then return end
-					if tabs.boss.Halloween.Data.Target ~= model then
-						tabs.boss.Halloween.Data.Target = model
-						tabs.boss.Halloween.Data.AttackSequence = nil
-						tabs.boss.Halloween.Data.EvadeUntil = 0
-						tabs.boss.Halloween.Data.DodgeStomps = false
+					if not tabs.boss.Alien.Data.Running or tabs.boss.Alien.Data.Generation ~= generation then return end
+					if tabs.boss.needsRetraining(tabs.boss.Alien) then return end
+					if tabs.boss.Alien.Data.Target ~= model then
+						tabs.boss.Alien.Data.Target = model
+						tabs.boss.Alien.Data.AttackSequence = nil
+						tabs.boss.Alien.Data.EvadeUntil = 0
+						tabs.boss.Alien.Data.DodgeStomps = false
 					end
-					tabs.boss.Halloween.Data.Phase = "Fighting"
+					tabs.boss.Alien.Data.Phase = "Fighting"
 					if lp.player.Character
 						and lp.player.Character:FindFirstChildOfClass("Humanoid")
 						and lp.player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
-						tabs.boss.Halloween.StatusLabel.Text = "Status: Fighting"
-						tabs.boss.attack(tabs.boss.Halloween, model, health, maxHealth, hitbox)
+						tabs.boss.Alien.StatusLabel.Text = "Status: Fighting"
+						tabs.boss.attack(tabs.boss.Alien, model, health, maxHealth, hitbox)
 					else
-						tabs.boss.Halloween.StatusLabel.Text = "Status: Waiting for Respawn"
+						tabs.boss.Alien.StatusLabel.Text = "Status: Waiting for Respawn"
 					end
 				else
-					tabs.boss.Halloween.Data.Target = nil
-					tabs.boss.Halloween.Data.Phase = "Waiting"
-					if tabs.boss.Halloween.Data.Preparation then
-						tabs.boss.Halloween.Data.Preparation = nil
+					tabs.boss.Alien.Data.Target = nil
+					tabs.boss.Alien.Data.Phase = "Waiting"
+					if tabs.boss.Alien.Data.Preparation then
+						tabs.boss.Alien.Data.Preparation = nil
 						tabs.boss.resumeTraining()
 					elseif wasFighting then
+						tabs.boss.collectChest(generation, "AlienBossChest", "alienBossChestPrompt")
+						if not tabs.boss.Alien.Data.Running or tabs.boss.Alien.Data.Generation ~= generation then return end
 						tabs.boss.resumeTraining()
 					end
 					wasFighting = false
-					tabs.boss.Halloween.StatusLabel.Text = "Status: Waiting for Halloween Boss"
+					tabs.boss.Alien.StatusLabel.Text = "Status: Waiting for Alien Boss"
 				end
 			end)
 			task.wait(model and 0.03 or 0.25)
 		end
-	end, tabs.boss.Halloween.Data.Generation)
+	end, tabs.boss.Alien.Data.Generation)
 end)
 
 tabs.other:AddHeading("Boosts:")
@@ -2557,14 +2558,19 @@ end
 
 tabs.other:AddHeading("Weights:")
 
-tabs.other:AddSwitch("Halloween Lift", function(state)
+tabs.other:AddSwitch("Zero Degrees Lift", function(state)
     if not state then return end
-    tabs.other.tpE(Vector3.new(5760.389, 83.206, 6117.898))
+    tabs.other.tpE(Vector3.new(-5372.25, 45.52, 10320.47))
 end)
 
-tabs.other:AddSwitch("Halloween Squat", function(state)
+tabs.other:AddSwitch("Zero Degrees Squat", function(state)
     if not state then return end
-    tabs.other.tpE(Vector3.new(4803.357, 83.791, 5827.032))
+    tabs.other.tpE(Vector3.new(-5100.90, 45.52, 11090.21))
+end)
+
+tabs.other:AddSwitch("Alien Squat", function(state)
+    if not state then return end
+    tabs.other.tpE(Vector3.new(-1604.72, 51.46, -11336.94))
 end)
 
 
@@ -2713,7 +2719,7 @@ tabs.info:AddLabel("- Muki @mukimagdich")
 tabs.info:AddLabel("")
 tabs.info:AddLabel("Silence is Open-Source!")
 tabs.info:AddLabel("")
-tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.3.0]")
+tabs.info.VersionLabel = tabs.info:AddLabel("Muscle Legends [V4.4.0]")
 tabs.info.VersionLabel.TextSize = 20
 tabs.info.VersionLabel.Font = Enum.Font.Arcade
 
