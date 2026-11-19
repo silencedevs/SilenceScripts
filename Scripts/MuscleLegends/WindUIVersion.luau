@@ -5270,6 +5270,13 @@ local PETS = {
         rebirth = 0,
     },
 
+	["Eclipse Devourer"] = {
+        repSpeed = 0,
+        strength = 0,
+        durability = 0,
+        rebirth = 2,
+    },
+
     ["Powercore Hound"] = {
         repSpeed = 0,
         strength = 25,
@@ -5340,7 +5347,7 @@ local PETS = {
     },
 }
 
-local MAX_PET_SLOTS = 12
+local MAX_PET_SLOTS = 13
 local TARGET_REP_SPEED = 100
 
 local function applyPetLoadout(selected, isCurrent)
