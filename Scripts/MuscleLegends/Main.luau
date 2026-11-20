@@ -2885,8 +2885,9 @@ tabs.boss.getBossHeadPosition = function(model, hitbox, head)
 	return hitbox.Position + Vector3.new(0, hitbox.Size.Y * 0.35, 0)
 end
 
-tabs.boss.getAliveCharacter = function(generation, timeout, startedAt, character, root, humanoid)
-	if not tabs.boss.Data.Running or tabs.boss.Data.Generation ~= generation then return end
+tabs.boss.getAliveCharacter = function(generation, timeout, owner, startedAt, character, root, humanoid)
+	owner = owner or tabs.boss
+	if not owner.Data.Running or owner.Data.Generation ~= generation then return end
 	startedAt = os.clock()
 	repeat
 		character = utils.playerData.Player.Character
@@ -2897,10 +2898,10 @@ tabs.boss.getAliveCharacter = function(generation, timeout, startedAt, character
 			utils.playerData.Humanoid = humanoid
 			return character, root, humanoid
 		end
-		tabs.boss.StatusLabel.Text = "Status: Waiting for Respawn"
+		owner.StatusLabel.Text = "Status: Waiting for Respawn"
 		task.wait(0.1)
-	until not tabs.boss.Data.Running
-		or tabs.boss.Data.Generation ~= generation
+	until not owner.Data.Running
+		or owner.Data.Generation ~= generation
 		or (timeout and os.clock() - startedAt >= timeout)
 end
 
@@ -3018,28 +3019,29 @@ tabs.boss.findChest = function(chestTag, promptName, chest, prompt, part)
 	if part and part:IsA("BasePart") then return chest, prompt, part end
 end
 
-tabs.boss.collectChest = function(generation, chestTag, promptName, startedAt, chest, prompt, part, character, root)
-	tabs.boss.StatusLabel.Text = "Status: Waiting for Chest"
+tabs.boss.collectChest = function(generation, chestTag, promptName, owner, eligibleAttribute, startedAt, chest, prompt, part, character, root)
+	owner = owner or tabs.boss
+	owner.StatusLabel.Text = "Status: Waiting for Chest"
 	startedAt = os.clock()
 	repeat
 		chest, prompt, part = tabs.boss.findChest(chestTag, promptName)
 		if chest and chest:GetAttribute("BossChestEmerging") ~= true then break end
 		task.wait(0.1)
-	until not tabs.boss.Data.Running or tabs.boss.Data.Generation ~= generation or os.clock() - startedAt >= 12
-	if not tabs.boss.Data.Running or tabs.boss.Data.Generation ~= generation or not chest or not part then return end
+	until not owner.Data.Running or owner.Data.Generation ~= generation or os.clock() - startedAt >= 12
+	if not owner.Data.Running or owner.Data.Generation ~= generation or not chest or not part then return end
 
-	tabs.boss.StatusLabel.Text = "Status: Collecting Chest"
+	owner.StatusLabel.Text = "Status: Collecting Chest"
 	startedAt = os.clock()
 	repeat
-		character, root = tabs.boss.getAliveCharacter(generation, 2)
+		character, root = tabs.boss.getAliveCharacter(generation, 2, owner)
 		if character and root and chest.Parent and part.Parent then
-			tabs.boss.StatusLabel.Text = "Status: Collecting Chest"
+			owner.StatusLabel.Text = "Status: Collecting Chest"
 			pcall(function()
 				root.CFrame = CFrame.lookAt(part.Position + Vector3.new(0, 3, 4), part.Position)
 				root.AssemblyLinearVelocity = Vector3.zero
 			end)
 			task.wait(0.15)
-			if not tabs.boss.Data.Running or tabs.boss.Data.Generation ~= generation then return end
+			if not owner.Data.Running or owner.Data.Generation ~= generation then return end
 			if not (prompt and prompt.Parent and type(fireproximityprompt) == "function"
 				and pcall(fireproximityprompt, prompt)) then
 				pcall(function()
@@ -3050,9 +3052,10 @@ tabs.boss.collectChest = function(generation, chestTag, promptName, startedAt, c
 			end
 		end
 		task.wait(0.25)
-	until not tabs.boss.Data.Running
-		or tabs.boss.Data.Generation ~= generation
+	until not owner.Data.Running
+		or owner.Data.Generation ~= generation
 		or utils.playerData.Player:GetAttribute("BossChestPending") == false
+		or (eligibleAttribute and utils.playerData.Player:GetAttribute(eligibleAttribute) ~= true)
 		or not chest.Parent
 		or os.clock() - startedAt >= 12
 end
@@ -3496,7 +3499,7 @@ tabs.boss.Alien.AutoFarmSwitch = tabs.boss:AddSwitch("Auto Farm Alien Boss", fun
 						tabs.boss.Alien.Data.Preparation = nil
 						tabs.boss.resumeTraining()
 					elseif wasFighting then
-						tabs.boss.collectChest(generation, "AlienBossChest", "alienBossChestPrompt")
+						tabs.boss.collectChest(generation, "AlienBossChest", "alienBossChestPrompt", tabs.boss.Alien, "AlienBossChestEligible")
 						if not tabs.boss.Alien.Data.Running or tabs.boss.Alien.Data.Generation ~= generation then return end
 						tabs.boss.resumeTraining()
 					end
